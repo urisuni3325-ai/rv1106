@@ -53,6 +53,9 @@ RV1106 보드의 카메라 영상을 핸드폰으로 보기까지, 순서대로 
 - **Windows**: `C:\Users\<사용자이름>\AppData\Local\Android\Sdk\platform-tools`
 - **Mac**: `~/Library/Android/sdk/platform-tools`
 
+설치가 끝나기 전이라도, adb 만 따로 받으면 3~7단계(보드 작업)를 먼저 진행할 수
+있습니다. 아래 접힌 항목을 보세요.
+
 터미널(Windows 는 PowerShell, Mac 은 터미널)을 열고 아래를 쳐서 확인합니다.
 
 ```sh
@@ -60,13 +63,77 @@ adb version
 ```
 
 `Android Debug Bridge version ...` 이 나오면 성공입니다.
-`명령을 찾을 수 없습니다` 가 나오면 위 폴더로 직접 이동해서 쓰면 됩니다.
 
-```powershell
-# Windows 예시
-cd C:\Users\내이름\AppData\Local\Android\Sdk\platform-tools
-.\adb version
+<details>
+<summary><b>"'adb'은(는) 내부 또는 외부 명령... 이 아닙니다" 가 나오면 (Windows)</b></summary>
+
+adb 가 아직 없거나, 있어도 Windows 가 위치를 모르는 상태입니다.
+
+**① 있는지부터 확인** — 명령 프롬프트에 그대로 붙여넣으세요.
+
 ```
+dir "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe"
+```
+
+- `파일을 찾을 수 없습니다` → 아직 없습니다. ②로
+- 목록에 `adb.exe` 가 보임 → 있습니다. ③으로
+
+**② 없다면 작은 것만 따로 받기**
+
+안드로이드 스튜디오는 용량이 커서 오래 걸리는데, 보드 작업(3~7단계)에는 adb 만
+있으면 됩니다. 먼저 이것만 받아서 진행하세요.
+
+1. <https://dl.google.com/android/repository/platform-tools-latest-windows.zip> 다운로드 (약 10MB)
+2. zip 우클릭 → **압축 풀기**
+3. 안에 있는 `platform-tools` 폴더를 통째로 `C:\` 로 옮깁니다
+4. **`C:\platform-tools\adb.exe`** 가 있으면 성공
+
+> 안드로이드 스튜디오는 8단계에서 필요합니다. 지금 설치를 걸어두면 시간을 아낄 수 있습니다.
+
+**③ 폴더로 이동해서 쓰기**
+
+```
+cd C:\platform-tools
+adb version
+```
+
+안드로이드 스튜디오가 이미 있었다면:
+
+```
+cd %LOCALAPPDATA%\Android\Sdk\platform-tools
+adb version
+```
+
+여기서 버전이 나오면 이대로도 다음 단계를 진행할 수 있습니다. 다만 명령 프롬프트를
+새로 열 때마다 `cd` 를 다시 쳐야 합니다.
+
+**④ 매번 cd 하기 싫다면 — PATH 에 등록**
+
+1. 윈도우 키 → **환경 변수** 검색 → **시스템 환경 변수 편집**
+2. 창 아래쪽 **환경 변수(N)...** 버튼
+3. **위쪽** "사용자 변수" 목록에서 **Path** 선택 → **편집**
+4. **새로 만들기** → `C:\platform-tools` 입력 (또는 ③에서 쓴 경로)
+5. **확인** 을 세 번 눌러 모든 창을 닫습니다
+6. **명령 프롬프트를 완전히 닫고 새로 엽니다** ← 이걸 안 하면 그대로 안 됩니다
+7. `adb version`
+
+</details>
+
+<details>
+<summary><b>Mac 에서 adb 가 없다고 나오면</b></summary>
+
+```sh
+cd ~/Library/Android/sdk/platform-tools
+./adb version
+```
+
+매번 쓰려면 `~/.zshrc` 에 아래 줄을 추가하고 터미널을 새로 여세요.
+
+```sh
+export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
+```
+
+</details>
 
 ### (3) VLC (영상 확인용, 강력 추천)
 
