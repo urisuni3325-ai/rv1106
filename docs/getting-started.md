@@ -145,9 +145,28 @@ export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 
 ## 2단계. 이 저장소 내려받기 (한 번만)
 
-터미널에서:
+### 어느 위치에 둘 것인가
 
-```sh
+어디에 둬도 동작하지만, Windows 에서 안드로이드 빌드를 하려면 피해야 할 위치가
+있습니다. **`C:\dev\rv1106`** 을 권합니다.
+
+| 피할 위치 | 이유 |
+|---|---|
+| 바탕 화면, 내 문서 | OneDrive 가 동기화하는 폴더라 빌드 중 파일이 잠기거나 충돌합니다 |
+| 경로에 **한글**이 있는 곳 | 안드로이드 빌드 도구가 한글 경로에서 실패하는 경우가 있습니다 |
+| 경로에 **띄어쓰기**가 있는 곳 | 명령어에서 따옴표를 빠뜨리면 바로 오류가 납니다 |
+| 아주 깊은 폴더 | 빌드 중 경로가 길어져 Windows 260자 제한에 걸릴 수 있습니다 |
+
+Mac 이라면 `~/dev/rv1106` 처럼 홈 폴더 아래 아무 데나 두면 됩니다.
+
+### 내려받기
+
+`git clone` 은 **지금 있는 폴더 안에** `rv1106` 폴더를 새로 만듭니다.
+그래서 `C:\dev` 에서 실행하면 결과가 `C:\dev\rv1106` 이 됩니다.
+
+```
+mkdir C:\dev
+cd C:\dev
 git clone https://github.com/urisuni3325-ai/rv1106.git
 cd rv1106
 git checkout claude/rv1106-sc3336-wifi-streaming-p74k9v
@@ -155,8 +174,22 @@ git checkout claude/rv1106-sc3336-wifi-streaming-p74k9v
 
 `git` 이 없다면 <https://git-scm.com/downloads> 에서 설치하거나,
 GitHub 페이지에서 **Code → Download ZIP** 으로 받아 압축을 풀어도 됩니다.
+ZIP 으로 받으면 폴더 이름이 `rv1106-claude-rv1106-sc3336...` 처럼 길게 나올 수
+있습니다. `rv1106` 으로 이름을 바꿔 `C:\dev\` 에 두면 되고, 이 경우
+`git checkout` 은 필요 없습니다.
 
-내려받은 폴더 안에 `android`, `device`, `docs` 폴더가 보이면 됩니다.
+### 확인
+
+폴더 안에서 `dir` (Mac 은 `ls`) 을 쳤을 때 `android`, `device`, `docs`
+세 폴더가 보이면 제대로 된 것입니다.
+
+이 폴더는 앞으로 두 번 더 씁니다.
+
+- **4단계** — `adb push` 명령을 반드시 이 폴더 안에서 실행합니다
+- **8단계** — 안드로이드 스튜디오에서 `C:\dev\rv1106\android` 를 엽니다
+  (`rv1106` 이 아니라 그 안의 `android`)
+
+앞 단계에서 만든 `C:\platform-tools` 와는 별개의 폴더입니다. 서로 섞지 마세요.
 
 ---
 
