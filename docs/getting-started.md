@@ -36,6 +36,37 @@ RV1106 보드의 카메라 영상을 핸드폰으로 보기까지, 순서대로 
 
 ---
 
+## 명령을 어디서 실행하나
+
+이 문서에는 "터미널에서" 또는 "명령 프롬프트에서" 라는 말이 자주 나옵니다.
+현재 폴더가 중요한 명령과 아무 데서나 되는 명령이 섞여 있어서, 기준을 먼저
+정리해 둡니다.
+
+- 명령 안에 **`C:\` 로 시작하는 전체 경로**만 들어 있으면 → **아무 폴더에서나**
+  됩니다. `%USERPROFILE%` 도 Windows 가 `C:\Users\사용자이름` 으로 바꿔주므로
+  전체 경로와 같습니다
+- **폴더 이름만 짧게 적힌 것**이 있으면(`app\build\…`, `device\scripts` 등) →
+  그 폴더가 있는 위치에서 실행해야 합니다
+
+| 명령 | 실행 위치 |
+|---|---|
+| `type "%USERPROFILE%\.gradle\gradle.properties"` | 아무 데나 |
+| `dir "C:\Program Files\Android\…"` | 아무 데나 |
+| `C:\platform-tools\adb.exe devices` | 아무 데나 |
+| `adb push device\scripts /root/scripts` | 저장소(`rv1106`) 폴더 |
+| `gradlew.bat …` | `android` 폴더 |
+| `adb install -r app\build\outputs\…` | `android` 폴더 |
+
+현재 폴더는 프롬프트의 `>` **왼쪽**에 표시됩니다. 옮길 때는 `cd /d 경로` 를
+쓰세요. `/d` 는 드라이브까지 바꿔주는 옵션이라 붙여두면 안전합니다.
+
+```
+C:\Users\user>cd /d C:\dev\rv1106\android
+C:\dev\rv1106\android>
+```
+
+Mac 은 `cd 경로`, 현재 위치 확인은 `pwd` 입니다.
+
 ## 1단계. PC 에 프로그램 설치 (한 번만)
 
 ### (1) 안드로이드 스튜디오
