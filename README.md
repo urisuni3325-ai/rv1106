@@ -30,6 +30,10 @@ USB 로 PC 에서 보던 것과 달리, 보드는 **표준 RTSP 서버**가 되�
 
 ## 빠른 시작
 
+> 처음이라면 [**처음부터 끝까지 따라 하기**](docs/getting-started.md) 를 보세요.
+> 프로그램 설치부터 앱 실행까지 하나씩 짚어 둔 초보자용 가이드입니다.
+> 아래는 익숙한 분을 위한 요약입니다.
+
 ### 1. 보드를 WiFi 에 연결
 
 USB 시리얼이나 ADB 로 보드에 접속한 뒤, `device/scripts` 를 보드에 복사하고:
@@ -123,6 +127,7 @@ cd android
 
 ## 더 읽을 거리
 
+- **[처음부터 끝까지 따라 하기](docs/getting-started.md)** — 초보자용 단계별 가이드
 - [보드 설정 자세히](docs/board-setup.md)
 - [지연 시간 줄이기](docs/latency-tuning.md)
 - [문제 해결](docs/troubleshooting.md)
