@@ -194,9 +194,13 @@ class StreamController(private val listener: Listener) {
     // ------------------------------------------------------------------ 내부
 
     private fun startDecoderLocked() {
-        val surf = surface ?: return
-        val s = sps ?: return
-        val p = pps ?: return
+        val surf = surface
+        val s = sps
+        val p = pps
+        if (surf == null || s == null || p == null) {
+            Log.i(TAG, "디코더 대기 중: surface=${surf != null} sps=${s != null} pps=${p != null}")
+            return
+        }
         if (decoder?.isRunning == true) return
         val d = VideoDecoder(
             onError = { msg ->

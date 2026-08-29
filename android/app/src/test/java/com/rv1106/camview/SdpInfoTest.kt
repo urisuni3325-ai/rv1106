@@ -1,5 +1,6 @@
 package com.rv1106.camview
 
+import com.rv1106.camview.rtsp.RtspClient
 import com.rv1106.camview.rtsp.SdpInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -61,5 +62,36 @@ class SdpInfoTest {
     fun `비디오 트랙이 없으면 null 을 돌려준다`() {
         val sdp = "v=0\nm=audio 0 RTP/AVP 8\na=control:track1"
         assertNull(SdpInfo.parse(sdp))
+    }
+}
+
+class TransportHeaderTest {
+
+    @Test
+    fun `서버가 배정한 인터리브 채널을 읽는다`() {
+        assertEquals(
+            0,
+            RtspClient.parseInterleavedChannel("RTP/AVP/TCP;unicast;interleaved=0-1"),
+        )
+        assertEquals(
+            2,
+            RtspClient.parseInterleavedChannel("RTP/AVP/TCP;unicast;interleaved=2-3"),
+        )
+    }
+
+    @Test
+    fun `순서가 달라도 읽는다`() {
+        assertEquals(
+            4,
+            RtspClient.parseInterleavedChannel(
+                "RTP/AVP/TCP;interleaved=4-5;unicast;ssrc=1234ABCD",
+            ),
+        )
+    }
+
+    @Test
+    fun `interleaved 가 없거나 헤더가 없으면 null 을 돌려준다`() {
+        assertNull(RtspClient.parseInterleavedChannel("RTP/AVP;unicast;client_port=8000-8001"))
+        assertNull(RtspClient.parseInterleavedChannel(null))
     }
 }

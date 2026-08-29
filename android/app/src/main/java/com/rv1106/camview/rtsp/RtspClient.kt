@@ -57,6 +57,12 @@ class RtspClient(
     private var sps: ByteArray? = null
     private var pps: ByteArray? = null
 
+    /** 서버가 SETUP 응답에서 지정한 RTP 인터리브 채널. 요청값과 다를 수 있다. */
+    private var rtpChannel = 0
+    private var rtpPacketCount = 0L
+    private var accessUnitCount = 0L
+    private var loggedUnexpectedChannel = -1
+
     private val depacketizer = RtpH264Depacketizer(object : RtpH264Depacketizer.Callback {
         override fun onNalUnits(au: ByteArray, isKeyFrame: Boolean, rtpTimestamp: Long) {
             handleAccessUnit(au, isKeyFrame, rtpTimestamp)
@@ -134,6 +140,11 @@ class RtspClient(
 
         val sdp = SdpInfo.parse(describe.body)
             ?: throw IOException("SDP 에서 H.264 비디오 트랙을 찾지 못했습니다")
+        Log.i(
+            TAG,
+            "SDP: control=${sdp.control} payloadType=${sdp.payloadType} " +
+                "sps=${sdp.sps?.size ?: 0}바이트 pps=${sdp.pps?.size ?: 0}바이트",
+        )
         sdp.sps?.let { s -> sdp.pps?.let { p -> updateParameterSets(s, p) } }
 
         val controlUrl = resolveControl(sdp.control, contentBase ?: url)
@@ -143,6 +154,8 @@ class RtspClient(
         )
         if (setup.status != 200) throw IOException("SETUP 실패 (${setup.status})")
         parseSessionHeader(setup.headers["session"])
+        rtpChannel = parseInterleavedChannel(setup.headers["transport"]) ?: 0
+        Log.i(TAG, "SETUP 완료: session=$sessionId rtpChannel=$rtpChannel transport=${setup.headers["transport"]}")
 
         val play = request("PLAY", contentBase ?: url, listOf("Range: npt=0.000-"))
         if (play.status != 200) throw IOException("PLAY 실패 (${play.status})")
@@ -157,6 +170,10 @@ class RtspClient(
         contentBase = null
         sps = null
         pps = null
+        rtpChannel = 0
+        rtpPacketCount = 0
+        accessUnitCount = 0
+        loggedUnexpectedChannel = -1
         firstRtpTs = -1L
         lastRtpTs = 0L
         tsWrapOffset = 0L
@@ -278,7 +295,15 @@ class RtspClient(
                 val len = ((header[1].toInt() and 0xFF) shl 8) or (header[2].toInt() and 0xFF)
                 if (len > packet.size) packet = ByteArray(len)
                 readFully(ins, packet, 0, len)
-                if (channel == RTP_CHANNEL) depacketizer.process(packet, len)
+                if (channel == rtpChannel) {
+                    if (rtpPacketCount == 0L) Log.i(TAG, "첫 RTP 패킷 수신 (채널 $channel, $len 바이트)")
+                    rtpPacketCount++
+                    depacketizer.process(packet, len)
+                } else if (channel != rtpChannel + 1 && channel != loggedUnexpectedChannel) {
+                    // RTCP(rtpChannel+1)는 정상이므로 조용히 버린다.
+                    loggedUnexpectedChannel = channel
+                    Log.w(TAG, "예상치 못한 인터리브 채널 $channel (RTP 채널은 $rtpChannel)")
+                }
             } else if (first == 'R'.code) {
                 // 데이터 사이에 섞여 들어온 RTSP 응답(주로 keepalive 응답)
                 readResponse("R" + readLine(ins))
@@ -320,6 +345,10 @@ class RtspClient(
         lastRtpTs = rtpTimestamp
         val ticks = rtpTimestamp + tsWrapOffset - firstRtpTs
         val ptsUs = ticks * 1_000_000L / CLOCK_RATE
+        accessUnitCount++
+        if (accessUnitCount == 1L || accessUnitCount % 300L == 0L) {
+            Log.i(TAG, "액세스 유닛 $accessUnitCount 개 (${au.size}바이트, 키프레임=$isKeyFrame, RTP 패킷 $rtpPacketCount)")
+        }
         listener.onAccessUnit(au, isKeyFrame, ptsUs)
     }
 
@@ -368,7 +397,6 @@ class RtspClient(
         private const val READ_TIMEOUT_MS = 15000
         private const val USER_AGENT = "RV1106CamView"
         private const val DOLLAR = '$'.code
-        private const val RTP_CHANNEL = 0
         private const val CLOCK_RATE = 90_000L
 
         fun readLine(ins: InputStream): String {
@@ -414,5 +442,17 @@ class RtspClient(
         }
 
         fun base64Decode(s: String): ByteArray = Base64.decode(s, Base64.DEFAULT)
+
+        /**
+         * `Transport: RTP/AVP/TCP;unicast;interleaved=2-3` 에서 RTP 채널(앞 숫자)을 뽑는다.
+         * 서버가 요청과 다른 채널을 배정할 수 있으므로 응답을 반드시 확인해야 한다.
+         */
+        fun parseInterleavedChannel(transport: String?): Int? {
+            val t = transport ?: return null
+            val idx = t.indexOf("interleaved=", ignoreCase = true)
+            if (idx < 0) return null
+            val digits = t.substring(idx + "interleaved=".length).takeWhile { it.isDigit() }
+            return digits.toIntOrNull()
+        }
     }
 }
