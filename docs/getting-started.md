@@ -245,12 +245,28 @@ ls /dev/video*
 
 **PC 터미널**에서(보드 안이 아니라), 2단계에서 받은 `rv1106` 폴더 안에서 실행합니다.
 
+먼저 지금 위치가 맞는지 확인합니다. `dir` (Mac 은 `ls`) 을 쳤을 때
+`android`, `device`, `docs` 세 폴더가 보여야 합니다. 안쪽에 폴더 하나만
+덩그러니 있다면 한 단계 더 들어가세요(ZIP 을 풀면 폴더가 두 겹으로 생기곤 합니다).
+
 ```sh
 adb push device/scripts /root/scripts
 adb shell chmod +x /root/scripts/*.sh
 ```
 
 `4 files pushed` 같은 메시지가 나오면 성공입니다.
+
+> **`adb` 를 찾을 수 없다고 나오면** — PATH 등록을 아직 안 한 것입니다.
+> 등록하지 않고 바로 쓰려면 `adb` 자리에 전체 경로를 적으면 됩니다.
+> 폴더 위치와는 무관하게 동작합니다.
+>
+> ```
+> C:\platform-tools\adb.exe push device\scripts /root/scripts
+> C:\platform-tools\adb.exe shell chmod +x /root/scripts/*.sh
+> ```
+>
+> 5단계부터는 `adb shell` 을 자주 쓰니, 1단계의 PATH 등록을 지금 해두는 편이
+> 편합니다. 등록 후에는 **명령 프롬프트를 닫고 새로 열어야** 적용됩니다.
 
 ---
 
