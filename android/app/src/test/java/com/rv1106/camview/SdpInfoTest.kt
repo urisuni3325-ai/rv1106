@@ -1,0 +1,65 @@
+package com.rv1106.camview
+
+import com.rv1106.camview.rtsp.SdpInfo
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class SdpInfoTest {
+
+    /** rkipc(Luckfox 기본 이미지)가 내려주는 SDP 와 같은 형태. */
+    private val rkipcSdp = """
+        v=0
+        o=- 91234 1 IN IP4 192.168.0.100
+        s=Session streamed by rkipc
+        t=0 0
+        a=control:*
+        m=video 0 RTP/AVP 96
+        c=IN IP4 0.0.0.0
+        b=AS:4000
+        a=rtpmap:96 H264/90000
+        a=fmtp:96 packetization-mode=1
+        a=control:track0
+    """.trimIndent()
+
+    @Test
+    fun `비디오 트랙의 control 과 payload type 을 읽는다`() {
+        val info = SdpInfo.parse(rkipcSdp)
+        assertNotNull(info)
+        assertEquals("track0", info!!.control)
+        assertEquals(96, info.payloadType)
+    }
+
+    @Test
+    fun `비디오에 control 이 없으면 세션 control 을 쓴다`() {
+        val sdp = """
+            v=0
+            a=control:rtsp://192.168.0.100/live/0
+            m=video 0 RTP/AVP 96
+            a=rtpmap:96 H264/90000
+        """.trimIndent()
+        assertEquals("rtsp://192.168.0.100/live/0", SdpInfo.parse(sdp)?.control)
+    }
+
+    @Test
+    fun `오디오 트랙의 속성에 영향을 받지 않는다`() {
+        val sdp = """
+            v=0
+            m=audio 0 RTP/AVP 8
+            a=control:track1
+            m=video 0 RTP/AVP 97
+            a=rtpmap:97 H264/90000
+            a=control:track0
+        """.trimIndent()
+        val info = SdpInfo.parse(sdp)
+        assertEquals("track0", info?.control)
+        assertEquals(97, info?.payloadType)
+    }
+
+    @Test
+    fun `비디오 트랙이 없으면 null 을 돌려준다`() {
+        val sdp = "v=0\nm=audio 0 RTP/AVP 8\na=control:track1"
+        assertNull(SdpInfo.parse(sdp))
+    }
+}
