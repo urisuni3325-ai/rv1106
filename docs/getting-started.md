@@ -521,8 +521,9 @@ JDK 를 지우거나 다시 설치할 필요는 없습니다. 이 프로젝트�
 
 **설정을 바꿨는데도 같은 오류가 반복되면**
 
-IDE 설정 바깥에서 JDK 를 강제하고 있는 것입니다. 사용자 폴더의 Gradle 설정을
-확인하세요.
+원인이 둘 중 하나입니다. 순서대로 확인하세요.
+
+**① 사용자 폴더의 Gradle 설정이 JDK 를 강제하는 경우**
 
 ```
 type "%USERPROFILE%\.gradle\gradle.properties"
@@ -531,7 +532,40 @@ type "%USERPROFILE%\.gradle\gradle.properties"
 `org.gradle.java.home=...` 줄이 있으면 그게 원인입니다. IDE 에서 무엇을 고르든
 이 값이 이깁니다. `notepad "%USERPROFILE%\.gradle\gradle.properties"` 로 열어
 **그 줄만** 지우고 저장한 뒤, 안드로이드 스튜디오를 완전히 종료했다가 다시 열어
-Sync 하세요.
+Sync 하세요. (`지정된 파일을 찾을 수 없습니다` 가 나오면 이 경우가 아닙니다)
+
+**② 안드로이드 스튜디오에 딸려온 JDK 가 Gradle 보다 최신인 경우**
+
+실제로 어떤 JDK 가 쓰이는지는 명령줄에서 확인하는 게 확실합니다.
+
+```
+cd /d C:\dev\rv1106\android
+gradlew.bat --version
+```
+
+`Launcher JVM: 25.x` 처럼 나오면 이 경우입니다. 최근 안드로이드 스튜디오는
+JBR 25 를 함께 설치하는데, Gradle 8.9 는 아직 Java 25 를 지원하지 않습니다.
+설정 창에 `jbr-21` 이라고 보여도 폴더 내용이 업데이트되어 라벨만 남은 것일 수
+있으니, 라벨이 아니라 위 출력을 믿으세요.
+
+Java 21 을 하나 마련하면 됩니다. 안드로이드 스튜디오가 대신 받아줍니다.
+
+1. **File → Settings → Build, Execution, Deployment → Build Tools → Gradle**
+2. **Gradle JDK** 드롭다운 맨 아래 **`Download JDK...`**
+3. **Version** `21`, **Vendor** `Eclipse Temurin`, Location 은 기본값
+4. **Download** → 끝나면 자동 선택됨 → **OK** → **Sync Project with Gradle Files**
+
+명령줄로 빌드할 때는 받은 JDK 를 직접 지정합니다. 폴더 이름은
+`dir "%USERPROFILE%\.jdks"` 로 확인하세요.
+
+```
+set JAVA_HOME=C:\Users\사용자이름\.jdks\temurin-21.0.5
+gradlew.bat --version
+```
+
+`Launcher JVM: 21.x` 로 바뀌면 됩니다. 직접 설치하고 싶다면
+<https://adoptium.net/temurin/releases/?version=21> 에서 Windows x64 `.msi` 를
+받아 기본값으로 설치해도 결과는 같습니다.
 
 </details>
 
