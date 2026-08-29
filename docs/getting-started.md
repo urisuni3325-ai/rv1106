@@ -38,9 +38,34 @@ RV1106 보드의 카메라 영상을 핸드폰으로 보기까지, 순서대로 
 
 ## 명령을 어디서 실행하나
 
-이 문서에는 "터미널에서" 또는 "명령 프롬프트에서" 라는 말이 자주 나옵니다.
-현재 폴더가 중요한 명령과 아무 데서나 되는 명령이 섞여 있어서, 기준을 먼저
-정리해 둡니다.
+### 먼저 — PC 인가 보드인가
+
+이 문서의 명령은 **PC(Windows)에서 치는 것**과 **보드(리눅스) 안에서 치는 것**이
+섞여 있습니다. 이걸 구분하는 게 가장 중요합니다.
+
+| | PC | 보드 |
+|---|---|---|
+| 프롬프트 | `C:\device\...\android>` | `[root@luckfox scripts]#` |
+| 경로 모양 | `C:\` 로 시작 | `/` 로 시작 (`/root/scripts`, `/etc/…`, `/dev/video0`) |
+| 대표 명령 | `adb`, `gradlew.bat`, `git` | `./wifi-setup.sh`, `ifconfig`, `wpa_cli` |
+
+보드 안으로 들어가려면 보드를 USB 로 연결한 뒤:
+
+```
+C:\platform-tools\adb.exe devices     (기기가 보이는지 확인)
+C:\platform-tools\adb.exe shell
+```
+
+프롬프트가 `[root@luckfox ~]#` 로 바뀌면 보드 안입니다. 빠져나올 때는 `exit`
+또는 Ctrl+D 를 누르면 `C:\…>` 로 돌아옵니다.
+
+> 폰도 함께 꽂혀 있으면 `adb devices` 에 기기가 둘 나오고 `adb shell` 이
+> `more than one device` 오류를 냅니다. 폰 USB 를 잠깐 빼거나,
+> `adb.exe -s <보드시리얼> shell` 로 지정하세요.
+
+### PC 안에서는 — 현재 폴더가 중요한가
+
+현재 폴더가 중요한 명령과 아무 데서나 되는 명령이 섞여 있습니다.
 
 - 명령 안에 **`C:\` 로 시작하는 전체 경로**만 들어 있으면 → **아무 폴더에서나**
   됩니다. `%USERPROFILE%` 도 Windows 가 `C:\Users\사용자이름` 으로 바꿔주므로
