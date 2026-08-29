@@ -488,6 +488,59 @@ Gradle 8.9 가 아직 지원하지 않는 최신 JDK 가 선택돼 있어서 납
 JDK 를 지우거나 다시 설치할 필요는 없습니다. 이 프로젝트에서 쓸 JDK 만
 지정하는 것이라 다른 작업에는 영향이 없습니다.
 
+**설정을 바꿨는데도 같은 오류가 반복되면**
+
+IDE 설정 바깥에서 JDK 를 강제하고 있는 것입니다. 사용자 폴더의 Gradle 설정을
+확인하세요.
+
+```
+type "%USERPROFILE%\.gradle\gradle.properties"
+```
+
+`org.gradle.java.home=...` 줄이 있으면 그게 원인입니다. IDE 에서 무엇을 고르든
+이 값이 이깁니다. `notepad "%USERPROFILE%\.gradle\gradle.properties"` 로 열어
+**그 줄만** 지우고 저장한 뒤, 안드로이드 스튜디오를 완전히 종료했다가 다시 열어
+Sync 하세요.
+
+</details>
+
+<details>
+<summary><b>안드로이드 스튜디오 없이 명령줄로 APK 만들기</b></summary>
+
+IDE 설정과 씨름하기 싫을 때 쓰는 방법입니다. JDK 를 명령줄에서 직접 지정하므로
+`gradle.properties` 나 IDE 설정에 영향을 받지 않습니다.
+
+먼저 안드로이드 스튜디오에 딸려온 JDK 경로를 확인합니다.
+
+```
+dir "C:\Program Files\Android\Android Studio\jbr\bin\java.exe"
+```
+
+`java.exe` 가 보이면 빌드합니다.
+
+```
+cd /d C:\dev\rv1106\android
+gradlew.bat "-Dorg.gradle.java.home=C:\Program Files\Android\Android Studio\jbr" assembleDebug
+```
+
+따옴표는 `-D` 부터 경로 끝까지 통째로 감쌉니다. 경로에 띄어쓰기가 있어서
+그렇습니다. Mac 이라면:
+
+```sh
+cd ~/dev/rv1106/android
+./gradlew assembleDebug
+```
+
+`BUILD SUCCESSFUL` 이 나오면 폰에 설치합니다.
+
+```
+C:\platform-tools\adb.exe install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+`Success` 가 뜨면 폰에 "RV1106 카메라" 앱이 생깁니다. 이 방법으로 설치했다면
+안드로이드 스튜디오는 더 쓰지 않아도 됩니다. 앱을 고쳐서 다시 설치할 때도 위
+두 명령만 반복하면 됩니다.
+
 </details>
 
 ### (3) 실행
