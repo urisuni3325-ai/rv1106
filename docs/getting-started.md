@@ -457,6 +457,39 @@ cd /root/scripts
    과정이라 **처음 한 번은 5~15분** 걸립니다. 끝날 때까지 기다리세요.
    (`Gradle sync finished` 가 뜨면 완료)
 
+제대로 열렸다면 왼쪽 프로젝트 패널에 `app`, `gradle`, `build.gradle.kts`,
+`settings.gradle.kts` 가 보입니다. `scripts` 와 `README.md` 만 보인다면
+`device` 폴더를 연 것이니 다시 여세요.
+
+<details>
+<summary><b>"Incompatible Gradle JVM version" 오류가 나오면</b></summary>
+
+```
+The project's Gradle version 8.9 is incompatible with the Gradle JVM
+version 25 currently selected to run Gradle build.
+```
+
+Gradle 8.9 가 아직 지원하지 않는 최신 JDK 가 선택돼 있어서 납니다. 프로젝트가
+아니라 IDE 설정 문제라 클릭 몇 번이면 됩니다.
+
+**가장 빠른 방법** — 오류 아래 파란 링크
+**Apply compatible Gradle JDK configuration and sync** 를 누르면 안드로이드
+스튜디오가 알아서 호환되는 JDK 로 바꾸고 다시 동기화합니다.
+
+**직접 지정하려면**
+
+1. **File → Settings** (Mac 은 Android Studio → Settings)
+2. **Build, Execution, Deployment → Build Tools → Gradle**
+3. **Gradle JDK** 를 **`jbr-21`** 또는 **`Embedded JDK`** 로 변경.
+   목록에 21 이 없으면 17 도 됩니다. 안드로이드 스튜디오에 딸려오는 JDK 라
+   호환이 보장됩니다
+4. **OK** → **File → Sync Project with Gradle Files**
+
+JDK 를 지우거나 다시 설치할 필요는 없습니다. 이 프로젝트에서 쓸 JDK 만
+지정하는 것이라 다른 작업에는 영향이 없습니다.
+
+</details>
+
 ### (3) 실행
 
 1. 화면 위쪽 기기 선택 칸에 **연결한 폰 이름**이 보이는지 확인
