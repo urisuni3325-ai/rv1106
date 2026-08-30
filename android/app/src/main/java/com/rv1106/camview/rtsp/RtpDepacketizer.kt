@@ -29,6 +29,13 @@ abstract class RtpDepacketizer(private val callback: Callback) {
     private var corrupt = false
     private var waitingForKeyFrame = true
 
+    /**
+     * 이 코덱으로는 해석할 수 없는 페이로드를 만난 횟수.
+     * 코덱 판단이 틀렸는지 가리는 신호로 쓴다.
+     */
+    @Volatile var malformedCount = 0
+        private set
+
     fun reset() {
         au.reset()
         fu.reset()
@@ -39,6 +46,7 @@ abstract class RtpDepacketizer(private val callback: Callback) {
         expectedSeq = -1
         corrupt = false
         waitingForKeyFrame = true
+        malformedCount = 0
     }
 
     fun process(packet: ByteArray, length: Int) {
@@ -93,6 +101,14 @@ abstract class RtpDepacketizer(private val callback: Callback) {
 
     /** 이 NAL 이 키프레임(IDR/IRAP)인지. */
     protected abstract fun isKeyFrameNal(nalType: Int): Boolean
+
+    /** 하위 클래스가 모르는 페이로드 타입을 만났을 때 부른다. */
+    protected fun reportMalformed(payloadType: Int) {
+        malformedCount++
+        if (malformedCount <= 3) {
+            Log.w(TAG, "해석할 수 없는 RTP 페이로드 타입: $payloadType (누적 $malformedCount)")
+        }
+    }
 
     protected fun appendNal(data: ByteArray, offset: Int, length: Int, nalType: Int) {
         if (length <= 0) return

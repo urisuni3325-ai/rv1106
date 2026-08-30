@@ -1,6 +1,5 @@
 package com.rv1106.camview.rtsp
 
-import android.util.Log
 
 /**
  * RTP(RFC 7798) → H.265(HEVC) Annex-B 재조립기.
@@ -26,7 +25,7 @@ class RtpH265Depacketizer(callback: Callback) : RtpDepacketizer(callback) {
             in 0..47 -> appendNal(packet, offset, end - offset, payloadType)
             AP -> parseAggregation(packet, offset + 2, end)
             FU -> parseFragment(packet, offset, end)
-            else -> Log.w(TAG, "지원하지 않는 RTP 페이로드 타입: $payloadType")
+            else -> reportMalformed(payloadType)
         }
     }
 
@@ -72,7 +71,6 @@ class RtpH265Depacketizer(callback: Callback) : RtpDepacketizer(callback) {
     }
 
     companion object {
-        private const val TAG = "RtpH265"
         private const val AP = 48
         private const val FU = 49
     }

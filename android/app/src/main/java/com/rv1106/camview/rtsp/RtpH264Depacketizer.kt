@@ -1,6 +1,5 @@
 package com.rv1106.camview.rtsp
 
-import android.util.Log
 
 /**
  * RTP(RFC 6184) → H.264 Annex-B 재조립기.
@@ -18,7 +17,7 @@ class RtpH264Depacketizer(callback: Callback) : RtpDepacketizer(callback) {
             in 1..23 -> appendNal(packet, offset, end - offset, nalType)
             STAP_A -> parseStapA(packet, offset + 1, end)
             FU_A -> parseFuA(packet, offset, end)
-            else -> Log.w(TAG, "지원하지 않는 RTP 페이로드 타입: $nalType")
+            else -> reportMalformed(nalType)
         }
     }
 
@@ -60,7 +59,6 @@ class RtpH264Depacketizer(callback: Callback) : RtpDepacketizer(callback) {
     }
 
     companion object {
-        private const val TAG = "RtpH264"
         private const val STAP_A = 24
         private const val FU_A = 28
         private const val NAL_IDR = 5

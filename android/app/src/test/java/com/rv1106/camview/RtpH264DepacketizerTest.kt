@@ -166,6 +166,36 @@ class RtpH264DepacketizerTest {
         assertEquals(1, collector.units.size)
     }
 
+    @Test
+    fun `H265 데이터를 넣으면 해석 실패로 세고 화면은 만들지 않는다`() {
+        // 코덱 판단이 틀렸을 때 앱이 스스로 알아채는 근거가 되는 동작이다.
+        val collector = Collector()
+        val d = RtpH264Depacketizer(collector)
+
+        // H.265 VPS(32) → byte0 = 0x40. H.264 로 읽으면 타입 0 이라 해석 불가.
+        val vps = byteArrayOf(0x40, 0x01, 0x0C, 0x01)
+        // H.265 AP(48) → byte0 = 0x60. 역시 타입 0.
+        val ap = byteArrayOf(0x60, 0x01, 0x00, 0x04, 0x42, 0x01, 0x01, 0x60)
+
+        d.process(rtp(800, 9000, false, vps), 12 + vps.size)
+        d.process(rtp(801, 9000, true, ap), 12 + ap.size)
+
+        assertEquals(2, d.malformedCount)
+        assertEquals(0, collector.units.size)
+    }
+
+    @Test
+    fun `정상 H264 스트림에서는 해석 실패가 없다`() {
+        val collector = Collector()
+        val d = RtpH264Depacketizer(collector)
+        val idr = byteArrayOf(0x65, 1, 2)
+
+        d.process(rtp(900, 9000, true, idr), 12 + idr.size)
+
+        assertEquals(0, d.malformedCount)
+        assertEquals(1, collector.units.size)
+    }
+
     /** 최소 RTP 헤더(12바이트) + 페이로드 패킷을 만든다. */
     private fun rtp(seq: Int, timestamp: Long, marker: Boolean, payload: ByteArray): ByteArray {
         val packet = ByteArray(12 + payload.size)

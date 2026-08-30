@@ -66,6 +66,8 @@ class RtspClient(
     private var rtpChannel = 0
     private var rtpPacketCount = 0L
     private var accessUnitCount = 0L
+    private var codecSwitched = false
+    private var firstPacketAtMs = 0L
     private var loggedUnexpectedChannel = -1
 
     private val depacketizerCallback = object : RtpDepacketizer.Callback {
@@ -146,8 +148,9 @@ class RtspClient(
         if (describe.status != 200) throw IOException("DESCRIBE 실패 (${describe.status})")
         contentBase = describe.headers["content-base"] ?: describe.headers["content-location"] ?: url
 
+        Log.i(TAG, "SDP 원문:\n${describe.body.take(800)}")
         val sdp = SdpInfo.parse(describe.body)
-            ?: throw IOException("SDP 에서 H.264 비디오 트랙을 찾지 못했습니다")
+            ?: throw IOException("SDP 에서 비디오 트랙을 찾지 못했습니다")
         Log.i(
             TAG,
             "SDP: control=${sdp.control} payloadType=${sdp.payloadType} " +
@@ -157,18 +160,17 @@ class RtspClient(
 
         // 코덱에 맞는 재조립기를 고른다. 모르는 코덱이면 화면이 검은 채로 멈추므로
         // 여기서 이유를 남기고 끊는다.
-        val encoding = sdp.encoding?.uppercase(Locale.US) ?: "H264"
+        val encoding = sdp.encoding?.uppercase(Locale.US)
         isH265 = when (encoding) {
             "H264", "AVC" -> false
             "H265", "HEVC" -> true
+            null -> sdp.vps != null // rtpmap 이 없으면 sprop-vps 유무로 짐작한다
             else -> throw IOException("지원하지 않는 코덱입니다: $encoding (H.264 와 H.265 만 처리합니다)")
         }
-        depacketizer = if (isH265) {
-            RtpH265Depacketizer(depacketizerCallback)
-        } else {
-            RtpH264Depacketizer(depacketizerCallback)
+        if (encoding == null) {
+            Log.w(TAG, "SDP 에 rtpmap 이 없습니다. ${if (isH265) "H.265" else "H.264"} 로 시작합니다")
         }
-        Log.i(TAG, "코덱: ${if (isH265) "H.265" else "H.264"}")
+        createDepacketizer()
 
         vps = sdp.vps
         sps = sdp.sps
@@ -192,6 +194,49 @@ class RtspClient(
         readInterleaved()
     }
 
+    private fun createDepacketizer() {
+        depacketizer = if (isH265) {
+            RtpH265Depacketizer(depacketizerCallback)
+        } else {
+            RtpH264Depacketizer(depacketizerCallback)
+        }
+        Log.i(TAG, "코덱: ${if (isH265) "H.265" else "H.264"}")
+    }
+
+    /**
+     * 패킷은 들어오는데 액세스 유닛이 하나도 안 나오면 코덱 판단이 틀린 것이다.
+     * SDP 가 코덱을 알려주지 않는 서버가 있어서, 한 번은 반대쪽으로 바꿔 본다.
+     */
+    /**
+     * 코덱 판단이 틀렸는지 확인한다. 해석 못 한 페이로드가 쌓이거나, 한참 받고도
+     * 액세스 유닛이 하나도 안 나오면 반대쪽 코덱으로 한 번 바꿔 본다.
+     *
+     * GOP 가 길면 첫 키프레임까지 몇 초가 걸리므로 시간 조건은 넉넉히 잡는다.
+     */
+    private fun maybeSwitchCodec() {
+        if (codecSwitched || accessUnitCount > 0L) return
+        val malformed = depacketizer?.malformedCount ?: 0
+        val elapsed = System.currentTimeMillis() - firstPacketAtMs
+        if (malformed >= MALFORMED_TO_SWITCH || elapsed > NO_FRAME_TIMEOUT_MS) {
+            Log.w(TAG, "코덱 판단 재검토: 해석 실패 $malformed 회, ${elapsed}ms 동안 액세스 유닛 없음")
+            switchCodec()
+        }
+    }
+
+    private fun switchCodec() {
+        codecSwitched = true
+        isH265 = !isH265
+        Log.w(TAG, "데이터가 풀리지 않아 코덱을 ${if (isH265) "H.265" else "H.264"} 로 바꿉니다")
+        createDepacketizer()
+        // 앞 코덱 기준으로 모아둔 파라미터셋은 버리고 스트림에서 다시 받는다.
+        vps = null
+        sps = null
+        pps = null
+        currentFormat = null
+        rtpPacketCount = 0
+        firstPacketAtMs = System.currentTimeMillis()
+    }
+
     private fun resetSessionState() {
         cseq = 1
         sessionId = null
@@ -202,6 +247,8 @@ class RtspClient(
         pps = null
         currentFormat = null
         depacketizer = null
+        codecSwitched = false
+        firstPacketAtMs = 0L
         rtpChannel = 0
         rtpPacketCount = 0
         accessUnitCount = 0
@@ -328,8 +375,10 @@ class RtspClient(
                 readFully(ins, packet, 0, len)
                 if (channel == rtpChannel) {
                     if (rtpPacketCount == 0L) Log.i(TAG, "첫 RTP 패킷 수신 (채널 $channel, $len 바이트)")
+                    if (rtpPacketCount == 1L) firstPacketAtMs = System.currentTimeMillis()
                     rtpPacketCount++
                     depacketizer?.process(packet, len)
+                    maybeSwitchCodec()
                 } else if (channel != rtpChannel + 1 && channel != loggedUnexpectedChannel) {
                     // RTCP(rtpChannel+1)는 정상이므로 조용히 버린다.
                     loggedUnexpectedChannel = channel
@@ -444,6 +493,12 @@ class RtspClient(
         private const val USER_AGENT = "RV1106CamView"
         private const val DOLLAR = '$'.code
         private const val CLOCK_RATE = 90_000L
+
+        /** 해석 못 한 페이로드가 이만큼 쌓이면 코덱 판단이 틀린 것으로 본다. */
+        private const val MALFORMED_TO_SWITCH = 2
+
+        /** 해석 실패가 없더라도 이 시간 동안 화면 한 장 못 만들면 코덱을 바꿔 본다. */
+        private const val NO_FRAME_TIMEOUT_MS = 12_000L
 
         fun readLine(ins: InputStream): String {
             val sb = StringBuilder()
