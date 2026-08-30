@@ -11,7 +11,7 @@
 set -e
 
 SECTION="video.0"
-WIDTH=""; HEIGHT=""; FPS=""; BITRATE=""; GOP=""
+WIDTH=""; HEIGHT=""; FPS=""; BITRATE=""; GOP=""; CODEC=""
 SHOW_ONLY=0
 NO_RESTART=0
 CONF=""
@@ -24,6 +24,7 @@ usage() {
   --fps N                            프레임레이트
   --bitrate N                        비트레이트(kbps)
   --gop N                            키프레임 간격(프레임 수)
+  --codec h264|h265                  영상 코덱. 안드로이드 앱은 h264 만 지원
   --section NAME                     설정 섹션 (기본: video.0)
   --config PATH                      rkipc.ini 경로 직접 지정
   --show                             현재 값만 출력
@@ -36,9 +37,9 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --preset)
             case "$2" in
-                wifi)       WIDTH=1920; HEIGHT=1080; FPS=25; BITRATE=3072; GOP=25 ;;
-                quality)    WIDTH=2304; HEIGHT=1296; FPS=25; BITRATE=6144; GOP=50 ;;
-                lowlatency) WIDTH=1280; HEIGHT=720;  FPS=30; BITRATE=2048; GOP=30 ;;
+                wifi)       WIDTH=1920; HEIGHT=1080; FPS=25; BITRATE=3072; GOP=25; CODEC="H.264" ;;
+                quality)    WIDTH=2304; HEIGHT=1296; FPS=25; BITRATE=6144; GOP=50; CODEC="H.264" ;;
+                lowlatency) WIDTH=1280; HEIGHT=720;  FPS=30; BITRATE=2048; GOP=30; CODEC="H.264" ;;
                 *) echo "알 수 없는 프리셋: $2" >&2; usage ;;
             esac
             shift 2 ;;
@@ -47,6 +48,13 @@ while [ $# -gt 0 ]; do
         --fps)      FPS="$2"; shift 2 ;;
         --bitrate)  BITRATE="$2"; shift 2 ;;
         --gop)      GOP="$2"; shift 2 ;;
+        --codec)
+            case "$2" in
+                h264|H264|h.264|H.264) CODEC="H.264" ;;
+                h265|H265|h.265|H.265|hevc|HEVC) CODEC="H.265" ;;
+                *) echo "알 수 없는 코덱: $2 (h264 또는 h265)" >&2; usage ;;
+            esac
+            shift 2 ;;
         --section)  SECTION="$2"; shift 2 ;;
         --config)   CONF="$2"; shift 2 ;;
         --show)     SHOW_ONLY=1; shift ;;
@@ -90,6 +98,7 @@ KV=""
 [ -n "$FPS" ]     && KV="$KV;frame_rate=$FPS"
 [ -n "$BITRATE" ] && KV="$KV;max_rate=$BITRATE"
 [ -n "$GOP" ]     && KV="$KV;gop=$GOP"
+[ -n "$CODEC" ]   && KV="$KV;output_data_type=$CODEC"
 [ -n "$KV" ] || { echo "바꿀 값이 없습니다." >&2; usage; }
 
 BACKUP="$CONF.bak.$(date +%s)"

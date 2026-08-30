@@ -485,6 +485,16 @@ cd /root/scripts
 - `--preset lowlatency` : 1280x720 / 30fps / 2Mbps — 지연을 최대한 줄이고 싶을 때
 - `--preset quality` : 2304x1296 / 6Mbps — 화질 우선(지연은 늘어남)
 
+**코덱은 반드시 H.264 여야 합니다.** 이 앱은 H.264 만 처리합니다. 보드가
+H.265 로 설정돼 있으면 VLC 로는 잘 보이는데 앱만 검은 화면이 됩니다.
+
+```sh
+./stream-tune.sh --show          # output_data_type 확인
+./stream-tune.sh --codec h264    # H.265 로 나오면 바꾸기
+```
+
+위 `--preset` 들은 코덱도 함께 H.264 로 맞춰줍니다.
+
 원본 설정은 자동으로 백업되고, 적용 후 rkipc 가 재시작됩니다.
 자세한 내용은 [지연 시간 줄이기](latency-tuning.md)를 보세요.
 
