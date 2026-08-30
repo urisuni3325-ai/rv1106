@@ -16,6 +16,7 @@ import com.rv1106.camview.databinding.ActivityMainBinding
 import com.rv1106.camview.databinding.DialogSettingsBinding
 import com.rv1106.camview.gallery.GalleryActivity
 import com.rv1106.camview.gallery.MediaRepository
+import com.rv1106.camview.net.BoardFinder
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -175,6 +176,9 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
         dialogBinding.editUser.setText(prefs.username)
         dialogBinding.editPassword.setText(prefs.password)
         dialogBinding.checkAutoConnect.isChecked = prefs.autoConnect
+        dialogBinding.btnFind.setOnClickListener {
+            findBoard(dialogBinding)
+        }
 
         AlertDialog.Builder(this)
             .setTitle(R.string.settings_title)
@@ -191,6 +195,58 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * 같은 WiFi 에서 RTSP 서버가 열린 기기를 찾아 주소 칸을 채운다.
+     * 보드가 DHCP 로 IP 를 받으면 재부팅마다 주소가 바뀌기 때문에 필요하다.
+     */
+    private fun findBoard(dialogBinding: DialogSettingsBinding) {
+        if (BoardFinder.localAddress() == null) {
+            dialogBinding.textFindStatus.setText(R.string.settings_no_wifi)
+            return
+        }
+        dialogBinding.btnFind.isEnabled = false
+        dialogBinding.textFindStatus.text = getString(R.string.settings_finding, 0)
+        io.execute {
+            val found = BoardFinder.scan(onProgress = { percent ->
+                runOnUiThread {
+                    dialogBinding.textFindStatus.text =
+                        getString(R.string.settings_finding, percent)
+                }
+            })
+            runOnUiThread {
+                dialogBinding.btnFind.isEnabled = true
+                when {
+                    found.isEmpty() ->
+                        dialogBinding.textFindStatus.setText(R.string.settings_found_none)
+                    found.size == 1 -> {
+                        dialogBinding.editUrl.setText(rtspUrlFor(found[0]))
+                        dialogBinding.textFindStatus.text =
+                            getString(R.string.settings_found_one, found[0])
+                    }
+                    else -> {
+                        dialogBinding.textFindStatus.text =
+                            getString(R.string.settings_found_many, found.size)
+                        AlertDialog.Builder(this)
+                            .setTitle(R.string.settings_find_board)
+                            .setItems(found.toTypedArray()) { _, which ->
+                                dialogBinding.editUrl.setText(rtspUrlFor(found[which]))
+                                dialogBinding.textFindStatus.text =
+                                    getString(R.string.settings_found_one, found[which])
+                            }
+                            .show()
+                    }
+                }
+            }
+        }
+    }
+
+    /** 기존 주소의 경로를 살리고 호스트만 바꾼다. 경로가 없으면 rkipc 기본값을 쓴다. */
+    private fun rtspUrlFor(ip: String): String {
+        val path = runCatching { java.net.URI(prefs.url).path }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: "/live/0"
+        return "rtsp://$ip:554$path"
     }
 
     private fun updateButtons() {

@@ -23,6 +23,12 @@
     <string name="settings_title">스트림 설정</string>
     <string name="settings_url_label">RTSP 주소</string>
     <string name="settings_url_hint">rtsp://192.168.0.100:554/live/0</string>
+    <string name="settings_find_board">보드 찾기</string>
+    <string name="settings_finding">찾는 중… %1$d%%</string>
+    <string name="settings_found_one">%1$s 을(를) 찾았습니다</string>
+    <string name="settings_found_none">찾지 못했습니다. 보드가 켜져 있고 같은 WiFi 인지 확인하세요</string>
+    <string name="settings_found_many">%1$d 대를 찾았습니다. 하나를 고르세요</string>
+    <string name="settings_no_wifi">WiFi 에 연결되어 있지 않습니다</string>
     <string name="settings_user_label">아이디 (없으면 비워두기)</string>
     <string name="settings_password_label">비밀번호</string>
     <string name="settings_auto_connect">앱을 열면 자동으로 연결</string>
