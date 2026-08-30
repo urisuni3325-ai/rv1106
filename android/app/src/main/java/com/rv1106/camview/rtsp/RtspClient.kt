@@ -3,6 +3,8 @@ package com.rv1106.camview.rtsp
 import android.util.Base64
 import android.util.Log
 import com.rv1106.camview.codec.H264SpsParser
+import com.rv1106.camview.codec.H265SpsParser
+import com.rv1106.camview.codec.StreamFormat
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.EOFException
@@ -30,8 +32,8 @@ class RtspClient(
 ) {
 
     interface Listener {
-        /** SPS/PPS 를 확보했을 때(최초 1회, 또는 파라미터가 바뀌었을 때) 호출된다. */
-        fun onParameterSets(sps: ByteArray, pps: ByteArray, width: Int, height: Int)
+        /** 코덱 정보를 확보했을 때(최초 1회, 또는 파라미터가 바뀌었을 때) 호출된다. */
+        fun onFormat(format: StreamFormat)
 
         /** 완성된 액세스 유닛 하나. Annex-B(00 00 00 01 포함) 바이트 배열. */
         fun onAccessUnit(au: ByteArray, isKeyFrame: Boolean, ptsUs: Long)
@@ -54,8 +56,11 @@ class RtspClient(
     private var authChallenge: String? = null
     private var contentBase: String? = null
 
+    private var isH265 = false
+    private var vps: ByteArray? = null
     private var sps: ByteArray? = null
     private var pps: ByteArray? = null
+    private var currentFormat: StreamFormat? = null
 
     /** 서버가 SETUP 응답에서 지정한 RTP 인터리브 채널. 요청값과 다를 수 있다. */
     private var rtpChannel = 0
@@ -63,11 +68,14 @@ class RtspClient(
     private var accessUnitCount = 0L
     private var loggedUnexpectedChannel = -1
 
-    private val depacketizer = RtpH264Depacketizer(object : RtpH264Depacketizer.Callback {
+    private val depacketizerCallback = object : RtpDepacketizer.Callback {
         override fun onNalUnits(au: ByteArray, isKeyFrame: Boolean, rtpTimestamp: Long) {
             handleAccessUnit(au, isKeyFrame, rtpTimestamp)
         }
-    })
+    }
+
+    /** 코덱을 SDP 에서 확인한 뒤 세션마다 새로 만든다. */
+    private var depacketizer: RtpDepacketizer? = null
 
     // RTP 타임스탬프(90kHz, 32bit) 랩어라운드 보정용
     private var firstRtpTs = -1L
@@ -143,18 +151,29 @@ class RtspClient(
         Log.i(
             TAG,
             "SDP: control=${sdp.control} payloadType=${sdp.payloadType} " +
-                "encoding=${sdp.encoding} sps=${sdp.sps?.size ?: 0}바이트 pps=${sdp.pps?.size ?: 0}바이트",
+                "encoding=${sdp.encoding} vps=${sdp.vps?.size ?: 0}바이트 " +
+                "sps=${sdp.sps?.size ?: 0}바이트 pps=${sdp.pps?.size ?: 0}바이트",
         )
-        // H.265 스트림을 H.264 로 해석하면 화면이 검은 채로 조용히 멈춘다.
-        // 원인을 바로 알 수 있게 여기서 끊는다.
-        val encoding = sdp.encoding?.uppercase(Locale.US)
-        if (encoding != null && encoding != "H264") {
-            throw IOException(
-                "이 앱은 H.264 만 지원합니다. 보드가 $encoding 로 보내는 중입니다 — " +
-                    "보드에서 output_data_type 을 H.264 로 바꾸세요",
-            )
+
+        // 코덱에 맞는 재조립기를 고른다. 모르는 코덱이면 화면이 검은 채로 멈추므로
+        // 여기서 이유를 남기고 끊는다.
+        val encoding = sdp.encoding?.uppercase(Locale.US) ?: "H264"
+        isH265 = when (encoding) {
+            "H264", "AVC" -> false
+            "H265", "HEVC" -> true
+            else -> throw IOException("지원하지 않는 코덱입니다: $encoding (H.264 와 H.265 만 처리합니다)")
         }
-        sdp.sps?.let { s -> sdp.pps?.let { p -> updateParameterSets(s, p) } }
+        depacketizer = if (isH265) {
+            RtpH265Depacketizer(depacketizerCallback)
+        } else {
+            RtpH264Depacketizer(depacketizerCallback)
+        }
+        Log.i(TAG, "코덱: ${if (isH265) "H.265" else "H.264"}")
+
+        vps = sdp.vps
+        sps = sdp.sps
+        pps = sdp.pps
+        buildFormatIfReady()
 
         val controlUrl = resolveControl(sdp.control, contentBase ?: url)
         val setup = request(
@@ -177,8 +196,12 @@ class RtspClient(
         cseq = 1
         sessionId = null
         contentBase = null
+        isH265 = false
+        vps = null
         sps = null
         pps = null
+        currentFormat = null
+        depacketizer = null
         rtpChannel = 0
         rtpPacketCount = 0
         accessUnitCount = 0
@@ -186,7 +209,6 @@ class RtspClient(
         firstRtpTs = -1L
         lastRtpTs = 0L
         tsWrapOffset = 0L
-        depacketizer.reset()
     }
 
     private fun parseSessionHeader(value: String?) {
@@ -307,7 +329,7 @@ class RtspClient(
                 if (channel == rtpChannel) {
                     if (rtpPacketCount == 0L) Log.i(TAG, "첫 RTP 패킷 수신 (채널 $channel, $len 바이트)")
                     rtpPacketCount++
-                    depacketizer.process(packet, len)
+                    depacketizer?.process(packet, len)
                 } else if (channel != rtpChannel + 1 && channel != loggedUnexpectedChannel) {
                     // RTCP(rtpChannel+1)는 정상이므로 조용히 버린다.
                     loggedUnexpectedChannel = channel
@@ -361,28 +383,43 @@ class RtspClient(
         listener.onAccessUnit(au, isKeyFrame, ptsUs)
     }
 
+    /** 스트림 안에 들어오는 파라미터셋을 코덱에 맞게 뽑아 둔다. */
     private fun extractParameterSets(au: ByteArray) {
-        var newSps: ByteArray? = null
-        var newPps: ByteArray? = null
+        var changed = false
         forEachNal(au) { start, end ->
-            when (au[start].toInt() and 0x1F) {
-                7 -> newSps = au.copyOfRange(start, end)
-                8 -> newPps = au.copyOfRange(start, end)
+            val nal = { au.copyOfRange(start, end) }
+            if (isH265) {
+                when ((au[start].toInt() ushr 1) and 0x3F) {
+                    32 -> if (!nal().contentEquals(vps)) { vps = nal(); changed = true }
+                    33 -> if (!nal().contentEquals(sps)) { sps = nal(); changed = true }
+                    34 -> if (!nal().contentEquals(pps)) { pps = nal(); changed = true }
+                }
+            } else {
+                when (au[start].toInt() and 0x1F) {
+                    7 -> if (!nal().contentEquals(sps)) { sps = nal(); changed = true }
+                    8 -> if (!nal().contentEquals(pps)) { pps = nal(); changed = true }
+                }
             }
         }
-        val s = newSps
-        val p = newPps
-        if (s != null && p != null && (!s.contentEquals(sps) || !p.contentEquals(pps))) {
-            updateParameterSets(s, p)
-        }
+        if (changed) buildFormatIfReady()
     }
 
-    private fun updateParameterSets(newSps: ByteArray, newPps: ByteArray) {
-        if (newSps.contentEquals(sps) && newPps.contentEquals(pps)) return
-        sps = newSps
-        pps = newPps
-        val size = H264SpsParser.parseSize(newSps)
-        listener.onParameterSets(newSps, newPps, size?.first ?: 0, size?.second ?: 0)
+    /** 필요한 파라미터셋이 모두 모였으면 StreamFormat 을 만들어 알린다. */
+    private fun buildFormatIfReady() {
+        val s = sps ?: return
+        val p = pps ?: return
+        val format = if (isH265) {
+            val v = vps ?: return
+            val size = H265SpsParser.parseSize(s)
+            StreamFormat.h265(v, s, p, size?.first ?: 0, size?.second ?: 0)
+        } else {
+            val size = H264SpsParser.parseSize(s)
+            StreamFormat.h264(s, p, size?.first ?: 0, size?.second ?: 0)
+        }
+        if (format.sameAs(currentFormat)) return
+        currentFormat = format
+        Log.i(TAG, "코덱 정보 확보: ${format.codecName} ${format.width}x${format.height}")
+        listener.onFormat(format)
     }
 
     private fun closeSocket() {

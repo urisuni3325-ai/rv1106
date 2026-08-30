@@ -6,19 +6,12 @@ object H264SpsParser {
     /** @return (width, height), 파싱 실패 시 null */
     fun parseSize(spsNal: ByteArray): Pair<Int, Int>? {
         if (spsNal.isEmpty()) return null
-        // 앞의 start code 와 NAL 헤더(1바이트)를 건너뛴다.
-        var offset = 0
-        while (offset + 3 < spsNal.size &&
-            spsNal[offset] == 0.toByte() && spsNal[offset + 1] == 0.toByte()
-        ) {
-            offset += if (spsNal[offset + 2] == 1.toByte()) 3 else 1
-        }
+        val offset = skipStartCode(spsNal)
         if (offset >= spsNal.size) return null
         if ((spsNal[offset].toInt() and 0x1F) != 7) return null
-        offset += 1
-        if (offset >= spsNal.size) return null
+        if (offset + 1 >= spsNal.size) return null
 
-        val rbsp = unescape(spsNal, offset)
+        val rbsp = unescapeRbsp(spsNal, offset + 1)
         return try {
             parseRbsp(BitReader(rbsp))
         } catch (e: IndexOutOfBoundsException) {
@@ -103,56 +96,6 @@ object H264SpsParser {
         }
     }
 
-    /** emulation prevention byte(0x03) 제거 */
-    private fun unescape(data: ByteArray, from: Int): ByteArray {
-        val out = ByteArray(data.size - from)
-        var len = 0
-        var zeros = 0
-        var i = from
-        while (i < data.size) {
-            val b = data[i]
-            if (zeros == 2 && b == 3.toByte()) {
-                zeros = 0
-            } else {
-                out[len++] = b
-                zeros = if (b == 0.toByte()) zeros + 1 else 0
-            }
-            i++
-        }
-        return out.copyOf(len)
-    }
-
     private val HIGH_PROFILES = intArrayOf(100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135)
 
-    private class BitReader(private val data: ByteArray) {
-        private var bitPos = 0
-
-        fun u(bits: Int): Int {
-            var value = 0
-            for (i in 0 until bits) {
-                val byteIndex = bitPos ushr 3
-                if (byteIndex >= data.size) throw IndexOutOfBoundsException()
-                val bit = (data[byteIndex].toInt() ushr (7 - (bitPos and 7))) and 1
-                value = (value shl 1) or bit
-                bitPos++
-            }
-            return value
-        }
-
-        fun ue(): Int {
-            var leadingZeros = 0
-            while (u(1) == 0) {
-                leadingZeros++
-                if (leadingZeros > 31) throw IndexOutOfBoundsException()
-            }
-            if (leadingZeros == 0) return 0
-            return (1 shl leadingZeros) - 1 + u(leadingZeros)
-        }
-
-        fun se(): Int {
-            val k = ue()
-            val sign = if (k and 1 == 1) 1 else -1
-            return sign * ((k + 1) / 2)
-        }
-    }
 }

@@ -95,6 +95,28 @@ class SdpInfoTest {
     }
 
     @Test
+    fun `H265 의 sprop-vps sps pps 를 각각 읽는다`() {
+        // 각 값은 base64. android.util.Base64 는 단위 테스트에서 기본값을 돌려주므로
+        // 여기서는 항목이 구분되어 파싱되는지(예외 없이 처리되는지)만 확인한다.
+        val sdp = """
+            v=0
+            m=video 0 RTP/AVP 96
+            a=rtpmap:96 H265/90000
+            a=fmtp:96 sprop-vps=QAEMAf//;sprop-sps=QgEBAWAA;sprop-pps=RAHA8vA=
+            a=control:track0
+        """.trimIndent()
+        val info = SdpInfo.parse(sdp)
+        assertNotNull(info)
+        assertEquals("H265", info!!.encoding)
+        assertEquals("track0", info.control)
+    }
+
+    @Test
+    fun `H264 는 vps 가 없다`() {
+        assertNull(SdpInfo.parse(rkipcSdp)?.vps)
+    }
+
+    @Test
     fun `비디오 트랙이 없으면 null 을 돌려준다`() {
         val sdp = "v=0\nm=audio 0 RTP/AVP 8\na=control:track1"
         assertNull(SdpInfo.parse(sdp))

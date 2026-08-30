@@ -1,5 +1,6 @@
 package com.rv1106.camview
 
+import com.rv1106.camview.rtsp.RtpDepacketizer
 import com.rv1106.camview.rtsp.RtpH264Depacketizer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -8,7 +9,7 @@ import org.junit.Test
 
 class RtpH264DepacketizerTest {
 
-    private class Collector : RtpH264Depacketizer.Callback {
+    private class Collector : RtpDepacketizer.Callback {
         val units = ArrayList<Triple<ByteArray, Boolean, Long>>()
         override fun onNalUnits(au: ByteArray, isKeyFrame: Boolean, rtpTimestamp: Long) {
             units.add(Triple(au, isKeyFrame, rtpTimestamp))

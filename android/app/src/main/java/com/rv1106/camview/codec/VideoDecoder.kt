@@ -7,8 +7,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
-import java.nio.ByteBuffer
-
 /**
  * H.264 하드웨어 디코더. 들어온 액세스 유닛을 곧바로 Surface 에 그린다.
  *
@@ -38,14 +36,12 @@ class VideoDecoder(
 
     private class Frame(val data: ByteArray, val ptsUs: Long, val isKeyFrame: Boolean)
 
-    fun start(surface: Surface, sps: ByteArray, pps: ByteArray, w: Int, h: Int) {
+    fun start(surface: Surface, streamFormat: StreamFormat) {
         stop()
-        width = if (w > 0) w else 1280
-        height = if (h > 0) h else 720
+        width = if (streamFormat.width > 0) streamFormat.width else 1280
+        height = if (streamFormat.height > 0) streamFormat.height else 720
 
-        val format = MediaFormat.createVideoFormat(MIME, width, height).apply {
-            setByteBuffer("csd-0", ByteBuffer.wrap(withStartCode(sps)))
-            setByteBuffer("csd-1", ByteBuffer.wrap(withStartCode(pps)))
+        val format = streamFormat.toMediaFormat().apply {
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, width * height)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
@@ -57,7 +53,7 @@ class VideoDecoder(
         val thread = HandlerThread("video-decoder").also { it.start() }
         callbackThread = thread
 
-        val mc = MediaCodec.createDecoderByType(MIME)
+        val mc = MediaCodec.createDecoderByType(streamFormat.mime)
         mc.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(c: MediaCodec, index: Int) {
                 synchronized(lock) { availableInputs.addLast(index) }
@@ -97,7 +93,7 @@ class VideoDecoder(
         codec = mc
         firstFrameRendered = false
         isRunning = true
-        Log.i(TAG, "디코더 시작 ${width}x$height")
+        Log.i(TAG, "디코더 시작 ${streamFormat.codecName} ${width}x$height")
     }
 
     fun queue(au: ByteArray, ptsUs: Long, isKeyFrame: Boolean) {
@@ -162,21 +158,6 @@ class VideoDecoder(
 
     companion object {
         private const val TAG = "VideoDecoder"
-        private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
         private const val MAX_PENDING = 8
-
-        fun withStartCode(nal: ByteArray): ByteArray {
-            if (nal.size >= 4 && nal[0] == 0.toByte() && nal[1] == 0.toByte() &&
-                nal[2] == 0.toByte() && nal[3] == 1.toByte()
-            ) {
-                return nal
-            }
-            if (nal.size >= 3 && nal[0] == 0.toByte() && nal[1] == 0.toByte() &&
-                nal[2] == 1.toByte()
-            ) {
-                return nal
-            }
-            return byteArrayOf(0, 0, 0, 1) + nal
-        }
     }
 }

@@ -96,6 +96,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 앱이 이렇게 만들어져 있습니다
 
+- **H.264 와 H.265 를 모두 재생합니다.** 보드가 어느 쪽으로 설정돼 있든 그대로
+  붙습니다. SDP 의 rtpmap 을 보고 코덱을 판단해 재조립기와 디코더를 고릅니다.
 - **RTSP 는 TCP interleaved 만 사용합니다.** UDP 를 쓰지 않아 공유기/NAT 환경에서
   안 붙는 문제가 없고, 패킷 유실도 훨씬 적습니다.
 - **녹화는 재인코딩이 없습니다.** 보드가 보낸 H.264 를 그대로 MP4 컨테이너에
@@ -121,7 +123,9 @@ cd android
 ```
 
 - `H264SpsParserTest` — SPS 에서 해상도 읽기(크롭이 있는 1080p, high profile 포함)
+- `H265SpsParserTest` — HEVC SPS 해상도 읽기(conformance window, 상위 계층 포함)
 - `RtpH264DepacketizerTest` — FU-A 재조립, STAP-A, 패킷 유실 시 키프레임까지 건너뛰기
+- `RtpH265DepacketizerTest` — FU 재조립, AP, IRAP 키프레임 판정
 - `DigestAuthTest` — RTSP Digest 인증(RFC 2617 예제 벡터로 검증)
 - `SdpInfoTest` — SDP 에서 비디오 트랙 control/payload type 찾기
 

@@ -1,10 +1,9 @@
 package com.rv1106.camview.record
 
 import android.media.MediaCodec
-import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.util.Log
-import com.rv1106.camview.codec.VideoDecoder
+import com.rv1106.camview.codec.StreamFormat
 import java.io.File
 import java.nio.ByteBuffer
 
@@ -38,16 +37,12 @@ class Mp4Recorder {
         get() = if (firstPtsUs < 0) 0 else (lastPtsUs - firstPtsUs) / 1000
 
     @Synchronized
-    fun start(target: File, sps: ByteArray, pps: ByteArray, width: Int, height: Int): Boolean {
+    fun start(target: File, streamFormat: StreamFormat): Boolean {
         if (isRecording) return false
         return try {
             target.parentFile?.mkdirs()
             val mx = MediaMuxer(target.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            val format = MediaFormat.createVideoFormat(MIME, width, height).apply {
-                setByteBuffer("csd-0", ByteBuffer.wrap(VideoDecoder.withStartCode(sps)))
-                setByteBuffer("csd-1", ByteBuffer.wrap(VideoDecoder.withStartCode(pps)))
-            }
-            trackIndex = mx.addTrack(format)
+            trackIndex = mx.addTrack(streamFormat.toMediaFormat())
             mx.start()
             muxer = mx
             file = target
@@ -56,7 +51,11 @@ class Mp4Recorder {
             sampleCount = 0
             waitingForKeyFrame = true
             isRecording = true
-            Log.i(TAG, "녹화 시작: ${target.absolutePath} (${width}x$height)")
+            Log.i(
+                TAG,
+                "녹화 시작: ${target.absolutePath} " +
+                    "(${streamFormat.codecName} ${streamFormat.width}x${streamFormat.height})",
+            )
             true
         } catch (e: Exception) {
             Log.e(TAG, "녹화 시작 실패", e)
@@ -128,6 +127,5 @@ class Mp4Recorder {
 
     companion object {
         private const val TAG = "Mp4Recorder"
-        private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
     }
 }

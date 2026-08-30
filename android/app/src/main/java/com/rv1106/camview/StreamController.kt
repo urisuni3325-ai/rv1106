@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
+import com.rv1106.camview.codec.StreamFormat
 import com.rv1106.camview.codec.VideoDecoder
 import com.rv1106.camview.record.Mp4Recorder
 import com.rv1106.camview.rtsp.RtspClient
@@ -38,10 +39,7 @@ class StreamController(private val listener: Listener) {
     private var decoder: VideoDecoder? = null
 
     private var surface: Surface? = null
-    private var sps: ByteArray? = null
-    private var pps: ByteArray? = null
-    private var videoWidth = 0
-    private var videoHeight = 0
+    private var format: StreamFormat? = null
 
     @Volatile var status: Status = Status.IDLE
         private set
@@ -62,10 +60,7 @@ class StreamController(private val listener: Listener) {
 
     fun connect(url: String, username: String?, password: String?) {
         disconnect()
-        synchronized(lock) {
-            sps = null
-            pps = null
-        }
+        synchronized(lock) { format = null }
         generation++
         val c = RtspClient(url, username?.ifBlank { null }, password, ClientListener(generation))
         client = c
@@ -100,18 +95,9 @@ class StreamController(private val listener: Listener) {
 
     /** @return 녹화를 시작했으면 true. 아직 영상 정보가 없으면 false. */
     fun startRecording(target: File): Boolean {
-        val s: ByteArray?
-        val p: ByteArray?
-        val w: Int
-        val h: Int
-        synchronized(lock) {
-            s = sps
-            p = pps
-            w = videoWidth
-            h = videoHeight
-        }
-        if (s == null || p == null || w <= 0 || h <= 0) return false
-        val started = recorder.start(target, s, p, w, h)
+        val f = synchronized(lock) { format }
+        if (f == null || f.width <= 0 || f.height <= 0) return false
+        val started = recorder.start(target, f)
         if (started) {
             main.removeCallbacks(recordTicker)
             main.post(recordTicker)
@@ -134,8 +120,8 @@ class StreamController(private val listener: Listener) {
 
     private inner class ClientListener(private val gen: Int) : RtspClient.Listener {
 
-        override fun onParameterSets(sps: ByteArray, pps: ByteArray, width: Int, height: Int) {
-            if (gen == generation) this@StreamController.onParameterSets(sps, pps, width, height)
+        override fun onFormat(format: StreamFormat) {
+            if (gen == generation) this@StreamController.onFormat(format)
         }
 
         override fun onAccessUnit(au: ByteArray, isKeyFrame: Boolean, ptsUs: Long) {
@@ -147,21 +133,18 @@ class StreamController(private val listener: Listener) {
         }
     }
 
-    private fun onParameterSets(sps: ByteArray, pps: ByteArray, width: Int, height: Int) {
+    private fun onFormat(newFormat: StreamFormat) {
         synchronized(lock) {
-            val changed = !sps.contentEquals(this.sps) || !pps.contentEquals(this.pps)
-            this.sps = sps
-            this.pps = pps
-            if (width > 0) videoWidth = width
-            if (height > 0) videoHeight = height
+            val changed = !newFormat.sameAs(format)
+            format = newFormat
             if (changed) {
                 decoder?.stop()
                 decoder = null
                 startDecoderLocked()
             }
         }
-        if (width > 0 && height > 0) {
-            main.post { listener.onVideoSize(width, height) }
+        if (newFormat.width > 0 && newFormat.height > 0) {
+            main.post { listener.onVideoSize(newFormat.width, newFormat.height) }
         }
     }
 
@@ -184,8 +167,7 @@ class StreamController(private val listener: Listener) {
             synchronized(lock) {
                 decoder?.stop()
                 decoder = null
-                sps = null
-                pps = null
+                format = null
             }
         }
         updateStatus(mapped, message)
@@ -195,10 +177,9 @@ class StreamController(private val listener: Listener) {
 
     private fun startDecoderLocked() {
         val surf = surface
-        val s = sps
-        val p = pps
-        if (surf == null || s == null || p == null) {
-            Log.i(TAG, "디코더 대기 중: surface=${surf != null} sps=${s != null} pps=${p != null}")
+        val f = format
+        if (surf == null || f == null) {
+            Log.i(TAG, "디코더 대기 중: surface=${surf != null} format=${f != null}")
             return
         }
         if (decoder?.isRunning == true) return
@@ -210,7 +191,7 @@ class StreamController(private val listener: Listener) {
             onFirstFrame = { main.post { listener.onFirstFrame() } },
         )
         try {
-            d.start(surf, s, p, videoWidth, videoHeight)
+            d.start(surf, f)
             decoder = d
         } catch (e: Exception) {
             Log.e(TAG, "디코더 시작 실패", e)
