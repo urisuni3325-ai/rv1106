@@ -7,6 +7,8 @@ import android.util.Log
 class SdpInfo(
     val control: String?,
     val payloadType: Int,
+    /** rtpmap 에 적힌 코덱 이름. 예: `H264`, `H265`. 없으면 null. */
+    val encoding: String?,
     val sps: ByteArray?,
     val pps: ByteArray?,
 ) {
@@ -20,6 +22,7 @@ class SdpInfo(
             var sps: ByteArray? = null
             var pps: ByteArray? = null
             var sessionControl: String? = null
+            var encoding: String? = null
 
             for (raw in sdp.split('\n')) {
                 val line = raw.trim()
@@ -40,6 +43,13 @@ class SdpInfo(
                         val v = attr.substring(8).trim()
                         if (inVideo) control = v else sessionControl = v
                     }
+                    inVideo && attr.startsWith("rtpmap:") -> {
+                        // "rtpmap:96 H264/90000" → "H264"
+                        encoding = attr.substringAfter(' ', "")
+                            .substringBefore('/')
+                            .trim()
+                            .ifEmpty { null }
+                    }
                     inVideo && attr.startsWith("fmtp:") -> {
                         val props = attr.substringAfter(' ', "").split(';')
                         for (prop in props) {
@@ -54,7 +64,7 @@ class SdpInfo(
                 }
             }
             if (!sdp.contains("m=video")) return null
-            return SdpInfo(control ?: sessionControl, payloadType, sps, pps)
+            return SdpInfo(control ?: sessionControl, payloadType, encoding, sps, pps)
         }
 
         private fun decode(b64: String?): ByteArray? {

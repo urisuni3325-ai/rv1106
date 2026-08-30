@@ -59,6 +59,42 @@ class SdpInfoTest {
     }
 
     @Test
+    fun `rtpmap 에서 코덱 이름을 읽는다`() {
+        assertEquals("H264", SdpInfo.parse(rkipcSdp)?.encoding)
+    }
+
+    @Test
+    fun `H265 스트림도 코덱 이름을 그대로 돌려준다`() {
+        val sdp = """
+            v=0
+            m=video 0 RTP/AVP 96
+            a=rtpmap:96 H265/90000
+            a=control:track0
+        """.trimIndent()
+        assertEquals("H265", SdpInfo.parse(sdp)?.encoding)
+    }
+
+    @Test
+    fun `오디오 트랙의 rtpmap 은 비디오 코덱으로 잡히지 않는다`() {
+        val sdp = """
+            v=0
+            m=audio 0 RTP/AVP 8
+            a=rtpmap:8 PCMA/8000
+            a=control:track1
+            m=video 0 RTP/AVP 96
+            a=rtpmap:96 H264/90000
+            a=control:track0
+        """.trimIndent()
+        assertEquals("H264", SdpInfo.parse(sdp)?.encoding)
+    }
+
+    @Test
+    fun `rtpmap 이 없으면 코덱은 null 이다`() {
+        val sdp = "v=0\nm=video 0 RTP/AVP 96\na=control:track0"
+        assertNull(SdpInfo.parse(sdp)?.encoding)
+    }
+
+    @Test
     fun `비디오 트랙이 없으면 null 을 돌려준다`() {
         val sdp = "v=0\nm=audio 0 RTP/AVP 8\na=control:track1"
         assertNull(SdpInfo.parse(sdp))

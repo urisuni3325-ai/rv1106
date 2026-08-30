@@ -143,8 +143,17 @@ class RtspClient(
         Log.i(
             TAG,
             "SDP: control=${sdp.control} payloadType=${sdp.payloadType} " +
-                "sps=${sdp.sps?.size ?: 0}바이트 pps=${sdp.pps?.size ?: 0}바이트",
+                "encoding=${sdp.encoding} sps=${sdp.sps?.size ?: 0}바이트 pps=${sdp.pps?.size ?: 0}바이트",
         )
+        // H.265 스트림을 H.264 로 해석하면 화면이 검은 채로 조용히 멈춘다.
+        // 원인을 바로 알 수 있게 여기서 끊는다.
+        val encoding = sdp.encoding?.uppercase(Locale.US)
+        if (encoding != null && encoding != "H264") {
+            throw IOException(
+                "이 앱은 H.264 만 지원합니다. 보드가 $encoding 로 보내는 중입니다 — " +
+                    "보드에서 output_data_type 을 H.264 로 바꾸세요",
+            )
+        }
         sdp.sps?.let { s -> sdp.pps?.let { p -> updateParameterSets(s, p) } }
 
         val controlUrl = resolveControl(sdp.control, contentBase ?: url)
