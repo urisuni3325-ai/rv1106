@@ -6,7 +6,7 @@ BusyBox 환경에서 동작하도록 POSIX `sh` 로 작성했습니다.
 보드에 복사하고 실행 권한을 줍니다.
 
 ```sh
-adb push device/scripts /root/scripts
+adb push device/scripts /root
 adb shell chmod +x /root/scripts/*.sh
 ```
 

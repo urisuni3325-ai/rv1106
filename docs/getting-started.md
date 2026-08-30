@@ -78,7 +78,7 @@ C:\platform-tools\adb.exe shell
 | `type "%USERPROFILE%\.gradle\gradle.properties"` | 아무 데나 |
 | `dir "C:\Program Files\Android\…"` | 아무 데나 |
 | `C:\platform-tools\adb.exe devices` | 아무 데나 |
-| `adb push device\scripts /root/scripts` | 저장소(`rv1106`) 폴더 |
+| `adb push device\scripts /root` | 저장소(`rv1106`) 폴더 |
 | `gradlew.bat …` | `android` 폴더 |
 | `adb install -r app\build\outputs\…` | `android` 폴더 |
 
@@ -306,18 +306,25 @@ ls /dev/video*
 덩그러니 있다면 한 단계 더 들어가세요(ZIP 을 풀면 폴더가 두 겹으로 생기곤 합니다).
 
 ```sh
-adb push device/scripts /root/scripts
+adb push device/scripts /root
 adb shell chmod +x /root/scripts/*.sh
 ```
 
 `4 files pushed` 같은 메시지가 나오면 성공입니다.
+
+> **대상이 `/root` 인 이유** — `adb push` 는 대상 폴더가 이미 있으면 그 안에 폴더를
+> 하나 더 만듭니다. `/root/scripts` 를 대상으로 주면 두 번째부터는
+> `/root/scripts/scripts` 가 생겨 옛 파일이 그대로 남습니다. `/root` 를 주면
+> 언제 실행해도 `/root/scripts` 안의 파일이 덮어써집니다.
+>
+> 이미 겪었다면 보드에서 `rm -rf /root/scripts/scripts` 로 정리하고 다시 push 하세요.
 
 > **`adb` 를 찾을 수 없다고 나오면** — PATH 등록을 아직 안 한 것입니다.
 > 등록하지 않고 바로 쓰려면 `adb` 자리에 전체 경로를 적으면 됩니다.
 > 폴더 위치와는 무관하게 동작합니다.
 >
 > ```
-> C:\platform-tools\adb.exe push device\scripts /root/scripts
+> C:\platform-tools\adb.exe push device\scripts /root
 > C:\platform-tools\adb.exe shell chmod +x /root/scripts/*.sh
 > ```
 >

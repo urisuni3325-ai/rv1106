@@ -21,7 +21,7 @@ Luckfox 기본 계정은 보통 `root` / `luckfox` 입니다.
 
 ```sh
 # PC 에서
-adb push device/scripts /root/scripts
+adb push device/scripts /root
 adb shell chmod +x /root/scripts/*.sh
 ```
 
