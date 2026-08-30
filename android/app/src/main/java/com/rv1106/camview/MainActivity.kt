@@ -5,6 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.util.Log
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -17,6 +20,7 @@ import com.rv1106.camview.databinding.DialogSettingsBinding
 import com.rv1106.camview.gallery.GalleryActivity
 import com.rv1106.camview.gallery.MediaRepository
 import com.rv1106.camview.net.BoardFinder
+import com.rv1106.camview.ui.ZoomState
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -30,6 +34,14 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
 
     private val io = Executors.newSingleThreadExecutor()
     private var surface: Surface? = null
+
+    private val zoom = ZoomState()
+    private lateinit var scaleDetector: ScaleGestureDetector
+    private lateinit var gestureDetector: GestureDetector
+
+    /** 스트림 해상도. 캡처를 원본 크기로 저장하는 데 쓴다. */
+    private var videoWidth = 0
+    private var videoHeight = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +70,8 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
             override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
         }
 
+        setUpZoomGestures()
+
         binding.btnConnect.setOnClickListener { toggleConnection() }
         binding.btnRecord.setOnClickListener { toggleRecording() }
         binding.btnSnapshot.setOnClickListener { takeSnapshot() }
@@ -68,6 +82,69 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
 
         binding.textUrl.text = prefs.url
         updateButtons()
+    }
+
+    /**
+     * 두피처럼 가까이 봐야 하는 대상은 화면에서 한 번 더 키우는 일이 잦다.
+     * 손가락으로 확대·이동하고, 두 번 누르면 원래대로 돌아간다.
+     */
+    private fun setUpZoomGestures() {
+        scaleDetector = ScaleGestureDetector(
+            this,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    zoom.zoomBy(
+                        detector.scaleFactor,
+                        detector.focusX,
+                        detector.focusY,
+                        binding.textureView.width,
+                        binding.textureView.height,
+                    )
+                    applyZoom()
+                    return true
+                }
+            },
+        )
+        gestureDetector = GestureDetector(
+            this,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onScroll(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    distanceX: Float,
+                    distanceY: Float,
+                ): Boolean {
+                    zoom.panBy(
+                        -distanceX,
+                        -distanceY,
+                        binding.textureView.width,
+                        binding.textureView.height,
+                    )
+                    applyZoom()
+                    return true
+                }
+
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    zoom.reset()
+                    applyZoom()
+                    return true
+                }
+            },
+        )
+        binding.videoContainer.setOnTouchListener { _, event ->
+            scaleDetector.onTouchEvent(event)
+            gestureDetector.onTouchEvent(event)
+            true
+        }
+    }
+
+    private fun applyZoom() {
+        val view = binding.textureView
+        if (view.width == 0 || view.height == 0) return
+        view.setTransform(zoom.toMatrix(view.width, view.height))
+        view.invalidate()
+        binding.textZoom.visibility = if (zoom.isZoomed) View.VISIBLE else View.GONE
+        binding.textZoom.text = zoom.label()
     }
 
     override fun onStart() {
@@ -140,8 +217,19 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
     }
 
     private fun takeSnapshot() {
-        val bitmap: Bitmap? = binding.textureView.bitmap
-        if (bitmap == null || controller.status != StreamController.Status.PLAYING) {
+        if (controller.status != StreamController.Status.PLAYING) {
+            Toast.makeText(this, R.string.msg_snapshot_not_ready, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 화면 크기가 아니라 스트림 원본 해상도로 받는다. 두피처럼 세밀한 대상은
+        // 해상도가 그대로 관찰 품질이 된다.
+        val bitmap: Bitmap? = if (videoWidth > 0 && videoHeight > 0) {
+            runCatching { binding.textureView.getBitmap(videoWidth, videoHeight) }.getOrNull()
+                ?: binding.textureView.bitmap
+        } else {
+            binding.textureView.bitmap
+        }
+        if (bitmap == null) {
             Toast.makeText(this, R.string.msg_snapshot_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
@@ -149,8 +237,11 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
         io.execute {
             val ok = saveJpeg(bitmap, file)
             runOnUiThread {
-                val msg = if (ok) getString(R.string.msg_saved_photo, file.name)
-                else getString(R.string.msg_snapshot_failed)
+                val msg = if (ok) {
+                    getString(R.string.msg_saved_photo, file.name, bitmap.width, bitmap.height)
+                } else {
+                    getString(R.string.msg_snapshot_failed)
+                }
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
         }
@@ -282,7 +373,10 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
     }
 
     override fun onVideoSize(width: Int, height: Int) {
+        videoWidth = width
+        videoHeight = height
         binding.textureView.setAspectRatio(width, height)
+        applyZoom()
         binding.textResolution.text = getString(R.string.resolution_format, width, height)
     }
 

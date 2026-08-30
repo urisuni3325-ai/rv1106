@@ -137,4 +137,5 @@ cd android
 - **[처음부터 끝까지 따라 하기](docs/getting-started.md)** — 초보자용 단계별 가이드
 - [보드 설정 자세히](docs/board-setup.md)
 - [지연 시간 줄이기](docs/latency-tuning.md)
+- [두피 관찰용으로 쓰기](docs/scalp-scope.md) — 접사·조명·거리 고정
 - [문제 해결](docs/troubleshooting.md)

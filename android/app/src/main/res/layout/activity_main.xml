@@ -68,6 +68,19 @@
                 tools:text="1920x1080" />
 
             <TextView
+                android:id="@+id/textZoom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_overlay"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:textColor="@color/white"
+                android:textSize="12sp"
+                android:visibility="gone"
+                tools:text="2.4x" />
+
+            <TextView
                 android:id="@+id/textUrl"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
