@@ -3,6 +3,8 @@ package com.rv1106.camview
 import com.rv1106.camview.rtsp.RtspClient
 import com.rv1106.camview.rtsp.SdpInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -151,5 +153,32 @@ class TransportHeaderTest {
     fun `interleaved 가 없거나 헤더가 없으면 null 을 돌려준다`() {
         assertNull(RtspClient.parseInterleavedChannel("RTP/AVP;unicast;client_port=8000-8001"))
         assertNull(RtspClient.parseInterleavedChannel(null))
+    }
+}
+
+class CodecSwitchDecisionTest {
+
+    @Test
+    fun `첫 패킷을 막 받은 시점에는 바꾸지 않는다`() {
+        // 경과 시간이 잘못 계산되면 정상 스트림도 첫 패킷에서 뒤집혔었다.
+        assertFalse(RtspClient.shouldSwitchCodec(0, 0, 0))
+        assertFalse(RtspClient.shouldSwitchCodec(0, 500, 0))
+    }
+
+    @Test
+    fun `해석 실패가 쌓이면 바꾼다`() {
+        assertFalse(RtspClient.shouldSwitchCodec(1, 500, 0))
+        assertTrue(RtspClient.shouldSwitchCodec(2, 500, 0))
+    }
+
+    @Test
+    fun `오래 기다려도 화면이 없으면 바꾼다`() {
+        assertFalse(RtspClient.shouldSwitchCodec(0, 11_000, 0))
+        assertTrue(RtspClient.shouldSwitchCodec(0, 13_000, 0))
+    }
+
+    @Test
+    fun `이미 화면이 나오고 있으면 바꾸지 않는다`() {
+        assertFalse(RtspClient.shouldSwitchCodec(5, 60_000, 1))
     }
 }

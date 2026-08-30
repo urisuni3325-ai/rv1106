@@ -214,10 +214,10 @@ class RtspClient(
      * GOP 가 길면 첫 키프레임까지 몇 초가 걸리므로 시간 조건은 넉넉히 잡는다.
      */
     private fun maybeSwitchCodec() {
-        if (codecSwitched || accessUnitCount > 0L) return
+        if (codecSwitched) return
         val malformed = depacketizer?.malformedCount ?: 0
-        val elapsed = System.currentTimeMillis() - firstPacketAtMs
-        if (malformed >= MALFORMED_TO_SWITCH || elapsed > NO_FRAME_TIMEOUT_MS) {
+        val elapsed = if (firstPacketAtMs == 0L) 0L else System.currentTimeMillis() - firstPacketAtMs
+        if (shouldSwitchCodec(malformed, elapsed, accessUnitCount)) {
             Log.w(TAG, "코덱 판단 재검토: 해석 실패 $malformed 회, ${elapsed}ms 동안 액세스 유닛 없음")
             switchCodec()
         }
@@ -375,7 +375,7 @@ class RtspClient(
                 readFully(ins, packet, 0, len)
                 if (channel == rtpChannel) {
                     if (rtpPacketCount == 0L) Log.i(TAG, "첫 RTP 패킷 수신 (채널 $channel, $len 바이트)")
-                    if (rtpPacketCount == 1L) firstPacketAtMs = System.currentTimeMillis()
+                    if (firstPacketAtMs == 0L) firstPacketAtMs = System.currentTimeMillis()
                     rtpPacketCount++
                     depacketizer?.process(packet, len)
                     maybeSwitchCodec()
@@ -499,6 +499,15 @@ class RtspClient(
 
         /** 해석 실패가 없더라도 이 시간 동안 화면 한 장 못 만들면 코덱을 바꿔 본다. */
         private const val NO_FRAME_TIMEOUT_MS = 12_000L
+
+        /**
+         * 코덱 판단을 뒤집어야 하는지. 시간 조건이 잘못 계산되면 정상 스트림도
+         * 첫 패킷에서 바로 뒤집히므로 판단만 떼어 내 테스트한다.
+         */
+        fun shouldSwitchCodec(malformedCount: Int, elapsedMs: Long, accessUnitCount: Long): Boolean {
+            if (accessUnitCount > 0L) return false
+            return malformedCount >= MALFORMED_TO_SWITCH || elapsedMs > NO_FRAME_TIMEOUT_MS
+        }
 
         fun readLine(ins: InputStream): String {
             val sb = StringBuilder()
