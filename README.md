@@ -138,4 +138,5 @@ cd android
 - [보드 설정 자세히](docs/board-setup.md)
 - [지연 시간 줄이기](docs/latency-tuning.md)
 - [두피 관찰용으로 쓰기](docs/scalp-scope.md) — 접사·조명·거리 고정
+- [오토포커스 붙이기](docs/af-guide.md)
 - [문제 해결](docs/troubleshooting.md)

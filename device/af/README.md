@@ -59,15 +59,28 @@ B안이면 DW9714 칩을 따로 달고, 그 IC에 3.3V를 넣는다.
 
 ## 빌드
 
-### 보드용 (크로스컴파일)
+> 처음 해 보신다면 **[docs/af-guide.md](../../docs/af-guide.md)** 를 보세요.
+> WSL2 설치부터 배선, 실행까지 단계별로 적어 뒀습니다.
 
-Luckfox SDK의 툴체인을 쓴다. 리눅스 환경이 필요하며 **WSL2로 충분하다.**
+### 보드용 — SDK 없이 (권장)
+
+Luckfox SDK(10GB+)는 필요 없다. 우분투 기본 크로스컴파일러로 **정적 링크**하면
+보드 rootfs의 libc 종류와 무관하게 실행된다. 리눅스가 필요하며 **WSL2로 충분하다.**
+
+```bash
+sudo apt install gcc-arm-linux-gnueabihf
+make board
+adb push af_tool /root/
+adb shell chmod +x /root/af_tool
+```
+
+약 500KB 정적 바이너리가 나온다.
+
+### 보드용 — SDK 툴체인이 있는 경우
 
 ```bash
 export PATH=$PATH:<SDK>/tools/linux/toolchain/arm-rockchip830-linux-uclibcgnueabihf/bin
 make CROSS_COMPILE=arm-rockchip830-linux-uclibcgnueabihf-
-adb push af_tool /root/
-adb shell chmod +x /root/af_tool
 ```
 
 ### 테스트 (보드 없이)
