@@ -97,6 +97,7 @@ static void usage(void)
 "  scan                 비트뱅 I2C 버스를 훑어 응답하는 주소를 찾는다\n"
 "  ping                 DW9714(0x0C) 가 응답하는지만 본다\n"
 "  set <위치>           렌즈를 그 위치로 옮긴다 (0~1023)\n"
+"  save <위치>          그 위치로 옮기고 초점값으로 저장한다 (수동 보정용)\n"
 "  sweep                전 구간을 훑는다 — 렌즈가 실제로 움직이는지 눈으로 확인\n"
 "  score                현재 위치의 선명도를 한 번 잰다 (카메라 필요)\n"
 "  af                   오토포커스를 돌리고 결과 위치로 이동한다 (카메라 필요)\n"
@@ -119,7 +120,13 @@ static void usage(void)
 "  af_tool scan                       # 배선 확인 — 0x0C 가 보이면 DW9714 정상\n"
 "  af_tool sweep --step 128           # 렌즈가 움직이는지 눈으로 확인\n"
 "  af_tool af --video /dev/video0 -v --save\n"
-"  af_tool restore                    # 부팅 후 저장된 초점으로 바로 복귀\n");
+"  af_tool restore                    # 부팅 후 저장된 초점으로 바로 복귀\n"
+"\n"
+"수동 보정 — 카메라를 열지 않으므로 스트리밍을 멈출 필요가 없다.\n"
+"  af_tool set 300     # 폰 화면을 보면서\n"
+"  af_tool set 400     # 여러 위치를 시도해\n"
+"  af_tool save 420    # 제일 선명한 값을 저장\n"
+"  af_tool restore     # 다음부터는 이 한 줄\n");
 }
 
 int main(int argc, char **argv)
@@ -187,7 +194,7 @@ int main(int argc, char **argv)
 
     /* I2C 를 열기 전에 명령 이름부터 확인한다. 오타 때문에 GPIO 를 잡을 이유가 없다. */
     static const char *const commands[] = {
-        "scan", "ping", "set", "sweep", "score", "af", "restore", NULL
+        "scan", "ping", "set", "sweep", "score", "af", "restore", "save", NULL
     };
     int known = 0;
     for (int i = 0; commands[i]; i++) {
@@ -245,7 +252,7 @@ int main(int argc, char **argv)
             status = 1;
         }
     }
-    else if (!strcmp(command, "set")) {
+    else if (!strcmp(command, "set") || !strcmp(command, "save")) {
         int position = -1;
         for (int i = 2; i < argc; i++) {
             if (argv[i][0] != '-') { position = atoi(argv[i]); break; }
@@ -258,6 +265,10 @@ int main(int argc, char **argv)
             status = 1;
         } else {
             printf("위치 %d 로 이동했습니다\n", position);
+            /* 콘으로 거리가 고정된 장비에서는 이 수동 보정 한 번이면 충분하다.
+             * 카메라를 열지 않으므로 스트리밍을 멈출 필요가 없다. */
+            if (!strcmp(command, "save") && save_focus(position) < 0)
+                status = 1;
         }
     }
     else if (!strcmp(command, "sweep")) {
