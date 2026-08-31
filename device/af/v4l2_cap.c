@@ -45,13 +45,23 @@ static int luma_plane_format(uint32_t fourcc)
            fourcc == V4L2_PIX_FMT_NV16 || fourcc == V4L2_PIX_FMT_GREY;
 }
 
-static void fourcc_str(uint32_t fourcc, char out[5])
+/* 출력할 수 없는 문자가 섞인 fourcc 도 알아볼 수 있게 16진수를 함께 적는다.
+ * rkisp 의 일부 노드는 우리가 모르는 벤더 전용 포맷을 쓴다. */
+static void fourcc_str(uint32_t fourcc, char out[24])
 {
-    out[0] = (char)(fourcc & 0xFF);
-    out[1] = (char)((fourcc >> 8) & 0xFF);
-    out[2] = (char)((fourcc >> 16) & 0xFF);
-    out[3] = (char)((fourcc >> 24) & 0xFF);
-    out[4] = '\0';
+    char c[4];
+    int printable = 1;
+
+    for (int i = 0; i < 4; i++) {
+        c[i] = (char)((fourcc >> (i * 8)) & 0xFF);
+        if (c[i] < 0x20 || c[i] > 0x7E)
+            printable = 0;
+    }
+
+    if (printable)
+        snprintf(out, 24, "%c%c%c%c (0x%08x)", c[0], c[1], c[2], c[3], fourcc);
+    else
+        snprintf(out, 24, "0x%08x", fourcc);
 }
 
 static int setup_format(v4l2_cap_t *cap, int want_w, int want_h, char *err, size_t errlen)
@@ -66,44 +76,55 @@ static int setup_format(v4l2_cap_t *cap, int want_w, int want_h, char *err, size
         return -1;
     }
 
-    if (cap->mplane) {
-        if (want_w > 0 && want_h > 0) {
-            fmt.fmt.pix_mp.width = want_w;
-            fmt.fmt.pix_mp.height = want_h;
-        }
-        fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
-        if (xioctl(cap->fd, VIDIOC_S_FMT, &fmt) < 0)
-            xioctl(cap->fd, VIDIOC_G_FMT, &fmt);   /* 드라이버가 정한 값을 그대로 쓴다 */
+    uint32_t current = cap->mplane ? fmt.fmt.pix_mp.pixelformat : fmt.fmt.pix.pixelformat;
 
-        if (!luma_plane_format(fmt.fmt.pix_mp.pixelformat)) {
-            char code[5];
-            fourcc_str(fmt.fmt.pix_mp.pixelformat, code);
-            snprintf(err, errlen,
-                     "지원하지 않는 픽셀 포맷 %s 입니다 (NV12/NV21/NV16/GREY 필요)", code);
-            return -1;
+    /* 드라이버가 이미 잡아 놓은 포맷이 쓸 만하면 그대로 둔다.
+     * rkisp 는 서브디바이스 파이프라인과 캡처 노드의 포맷이 맞아야 하는데,
+     * 여기서 함부로 S_FMT 를 하면 STREAMON 이 EINVAL 로 거부한다. */
+    int need_change = !luma_plane_format(current) || (want_w > 0 && want_h > 0);
+
+    if (need_change) {
+        struct v4l2_format wanted = fmt;
+        if (cap->mplane) {
+            if (want_w > 0 && want_h > 0) {
+                wanted.fmt.pix_mp.width = want_w;
+                wanted.fmt.pix_mp.height = want_h;
+            }
+            wanted.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
+        } else {
+            if (want_w > 0 && want_h > 0) {
+                wanted.fmt.pix.width = want_w;
+                wanted.fmt.pix.height = want_h;
+            }
+            wanted.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
         }
+
+        if (xioctl(cap->fd, VIDIOC_S_FMT, &wanted) == 0)
+            fmt = wanted;
+        else
+            xioctl(cap->fd, VIDIOC_G_FMT, &fmt);   /* 원래 설정으로 되돌린다 */
+    }
+
+    if (cap->mplane) {
         cap->width = fmt.fmt.pix_mp.width;
         cap->height = fmt.fmt.pix_mp.height;
         cap->stride = fmt.fmt.pix_mp.plane_fmt[0].bytesperline;
+        current = fmt.fmt.pix_mp.pixelformat;
     } else {
-        if (want_w > 0 && want_h > 0) {
-            fmt.fmt.pix.width = want_w;
-            fmt.fmt.pix.height = want_h;
-        }
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
-        if (xioctl(cap->fd, VIDIOC_S_FMT, &fmt) < 0)
-            xioctl(cap->fd, VIDIOC_G_FMT, &fmt);
-
-        if (!luma_plane_format(fmt.fmt.pix.pixelformat)) {
-            char code[5];
-            fourcc_str(fmt.fmt.pix.pixelformat, code);
-            snprintf(err, errlen,
-                     "지원하지 않는 픽셀 포맷 %s 입니다 (NV12/NV21/NV16/GREY 필요)", code);
-            return -1;
-        }
         cap->width = fmt.fmt.pix.width;
         cap->height = fmt.fmt.pix.height;
         cap->stride = fmt.fmt.pix.bytesperline;
+        current = fmt.fmt.pix.pixelformat;
+    }
+
+    if (!luma_plane_format(current)) {
+        char code[24];
+        fourcc_str(current, code);
+        snprintf(err, errlen,
+                 "이 노드의 픽셀 포맷 %s 는 지원하지 않습니다 "
+                 "(NV12/NV21/NV16/GREY 필요). af_tool list-video 로 다른 노드를 보세요",
+                 code);
+        return -1;
     }
 
     if (cap->stride <= 0)
@@ -302,7 +323,8 @@ void v4l2_cap_close(v4l2_cap_t *cap)
 
 void v4l2_cap_list(void)
 {
-    printf("캡처 가능한 노드:\n");
+    printf("캡처 가능한 노드:\n\n");
+
     for (int i = 0; i < 64; i++) {
         char path[32];
         snprintf(path, sizeof(path), "/dev/video%d", i);
@@ -313,14 +335,61 @@ void v4l2_cap_list(void)
 
         struct v4l2_capability capability;
         memset(&capability, 0, sizeof(capability));
-        if (xioctl(fd, VIDIOC_QUERYCAP, &capability) == 0) {
-            uint32_t caps = capability.capabilities & V4L2_CAP_DEVICE_CAPS
-                          ? capability.device_caps : capability.capabilities;
-            if (caps & (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_CAPTURE_MPLANE)) {
-                printf("  %-16s %s%s\n", path, capability.card,
-                       (caps & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ? " [mplane]" : "");
+        if (xioctl(fd, VIDIOC_QUERYCAP, &capability) < 0) {
+            close(fd);
+            continue;
+        }
+
+        uint32_t caps = capability.capabilities & V4L2_CAP_DEVICE_CAPS
+                      ? capability.device_caps : capability.capabilities;
+        if (!(caps & (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_CAPTURE_MPLANE))) {
+            close(fd);
+            continue;
+        }
+
+        int mplane = (caps & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ? 1 : 0;
+        int type = mplane ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+                          : V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+        printf("  %-14s %s%s\n", path, capability.card, mplane ? "  [mplane]" : "");
+
+        /* 현재 설정 - 이게 그대로 쓸 수 있는지가 관건이다. */
+        struct v4l2_format fmt;
+        memset(&fmt, 0, sizeof(fmt));
+        fmt.type = type;
+        if (xioctl(fd, VIDIOC_G_FMT, &fmt) == 0) {
+            uint32_t pixfmt = mplane ? fmt.fmt.pix_mp.pixelformat : fmt.fmt.pix.pixelformat;
+            unsigned w = mplane ? fmt.fmt.pix_mp.width : fmt.fmt.pix.width;
+            unsigned h = mplane ? fmt.fmt.pix_mp.height : fmt.fmt.pix.height;
+            char code[24];
+            fourcc_str(pixfmt, code);
+            printf("      현재 설정   %ux%u  %s%s\n", w, h, code,
+                   luma_plane_format(pixfmt) ? "   <- 바로 사용 가능" : "   <- 지원 안 함");
+        }
+
+        /* 이 노드가 낼 수 있는 포맷 중 우리가 쓸 수 있는 것. */
+        printf("      사용 가능   ");
+        int usable = 0;
+        for (uint32_t index = 0; index < 32; index++) {
+            struct v4l2_fmtdesc desc;
+            memset(&desc, 0, sizeof(desc));
+            desc.index = index;
+            desc.type = type;
+            if (xioctl(fd, VIDIOC_ENUM_FMT, &desc) < 0)
+                break;
+            if (luma_plane_format(desc.pixelformat)) {
+                char code[24];
+                fourcc_str(desc.pixelformat, code);
+                printf("%s%s", usable ? ", " : "", code);
+                usable++;
             }
         }
+        printf("%s\n\n", usable ? "" : "(없음)");
+
         close(fd);
     }
+
+    printf("휘도(Y) 평면을 바로 읽을 수 있는 노드를 --video 에 지정하세요.\n"
+           "STREAMON 이 실패하면 rkipc 가 파이프라인을 잡고 있는 것입니다:\n"
+           "  killall rkipc  후 다시 시도하고, 끝나면  RkLunch.sh &  로 되살리세요.\n");
 }
