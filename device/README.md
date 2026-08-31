@@ -38,3 +38,16 @@ cd /root/scripts
   ```
 
 자세한 내용은 [docs/board-setup.md](../docs/board-setup.md) 를 보세요.
+
+## af/ — 오토포커스
+
+`device/af/` 에 VCM 오토포커스 도구가 있습니다. 커널을 다시 빌드하지 않고
+GPIO 두 개를 비트뱅해 DW9714 VCM 드라이버를 제어합니다.
+
+```sh
+make -C device/af test      # 보드 없이 탐색 로직 검증
+make -C device/af CROSS_COMPILE=arm-rockchip830-linux-uclibcgnueabihf-
+adb push device/af/af_tool /root/
+```
+
+배선과 사용 순서는 [device/af/README.md](af/README.md) 를 보세요.
