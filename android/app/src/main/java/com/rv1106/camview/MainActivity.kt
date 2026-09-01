@@ -15,12 +15,15 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.rv1106.camview.capture.CaptureFormat
+import com.rv1106.camview.capture.JpegDensity
 import com.rv1106.camview.databinding.ActivityMainBinding
 import com.rv1106.camview.databinding.DialogSettingsBinding
 import com.rv1106.camview.gallery.GalleryActivity
 import com.rv1106.camview.gallery.MediaRepository
 import com.rv1106.camview.net.BoardFinder
 import com.rv1106.camview.ui.ZoomState
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -233,14 +236,39 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
             Toast.makeText(this, R.string.msg_snapshot_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
-        val file = MediaRepository.newPhotoFile(this)
+
+        val aiFormat = prefs.captureForAi
+        val keepOriginal = prefs.captureOriginalToo
+        val photo = MediaRepository.newPhotoFile(this)
+        val originalPhoto = MediaRepository.variantOf(photo, "_full")
+
         io.execute {
-            val ok = saveJpeg(bitmap, file)
+            val aiBitmap = if (aiFormat) toAiFormat(bitmap) else null
+            // AI 규격 변환이 안 되면(프레임 크기가 이상한 경우) 원본이라도 남긴다.
+            val saveOriginal = !aiFormat || keepOriginal || aiBitmap == null
+            val originalFile = if (aiBitmap != null) originalPhoto else photo
+
+            var first: SavedPhoto? = null
+            var second: SavedPhoto? = null
+            if (aiBitmap != null) {
+                val saved = SavedPhoto(photo.name, aiBitmap.width, aiBitmap.height)
+                if (saveJpeg(aiBitmap, photo)) first = saved
+                if (aiBitmap !== bitmap) aiBitmap.recycle()
+            }
+            if (saveOriginal && saveJpeg(bitmap, originalFile)) {
+                val saved = SavedPhoto(originalFile.name, bitmap.width, bitmap.height)
+                if (first == null) first = saved else second = saved
+            }
+
             runOnUiThread {
-                val msg = if (ok) {
-                    getString(R.string.msg_saved_photo, file.name, bitmap.width, bitmap.height)
-                } else {
-                    getString(R.string.msg_snapshot_failed)
+                val done = first
+                val msg = when {
+                    done == null -> getString(R.string.msg_snapshot_failed)
+                    second != null -> getString(
+                        R.string.msg_saved_photo_two,
+                        done.name, done.width, done.height, second!!.name
+                    )
+                    else -> getString(R.string.msg_saved_photo, done.name, done.width, done.height)
                 }
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
@@ -250,11 +278,31 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
         binding.flashOverlay.animate().alpha(0f).setDuration(220).start()
     }
 
+    private data class SavedPhoto(val name: String, val width: Int, val height: Int)
+
+    /**
+     * 스트림 프레임을 AI 분석 규격으로 바꾼다 — 가운데를 정사각형으로 잘라
+     * 1000x1000 으로 줄인다. 크기를 못 구하면 null.
+     */
+    private fun toAiFormat(source: Bitmap): Bitmap? {
+        val crop = CaptureFormat.centerSquare(source.width, source.height) ?: return null
+        return runCatching {
+            val square = Bitmap.createBitmap(source, crop.x, crop.y, crop.size, crop.size)
+            val scaled =
+                Bitmap.createScaledBitmap(square, CaptureFormat.SIZE, CaptureFormat.SIZE, true)
+            // 자를 것이 없으면 createBitmap 이 원본을 그대로 돌려준다. 그건 남겨 둔다.
+            if (scaled !== square && square !== source) square.recycle()
+            scaled
+        }.getOrNull()
+    }
+
+    /** 분석 쪽 규격에 맞춰 72dpi 를 적어 저장한다. */
     private fun saveJpeg(bitmap: Bitmap, file: File): Boolean = try {
         file.parentFile?.mkdirs()
-        FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-        }
+        val buffer = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, buffer)
+        val jpeg = JpegDensity.apply(buffer.toByteArray(), CaptureFormat.DPI)
+        FileOutputStream(file).use { out -> out.write(jpeg) }
         true
     } catch (e: Exception) {
         Log.e(TAG, "캡처 저장 실패", e)
@@ -267,6 +315,13 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
         dialogBinding.editUser.setText(prefs.username)
         dialogBinding.editPassword.setText(prefs.password)
         dialogBinding.checkAutoConnect.isChecked = prefs.autoConnect
+        dialogBinding.checkCaptureAi.isChecked = prefs.captureForAi
+        dialogBinding.checkCaptureOriginal.isChecked = prefs.captureOriginalToo
+        // AI 규격을 끄면 어차피 원본만 저장되므로 함께 저장 여부를 물을 필요가 없다.
+        dialogBinding.checkCaptureOriginal.isEnabled = prefs.captureForAi
+        dialogBinding.checkCaptureAi.setOnCheckedChangeListener { _, checked ->
+            dialogBinding.checkCaptureOriginal.isEnabled = checked
+        }
         dialogBinding.btnFind.setOnClickListener {
             findBoard(dialogBinding)
         }
@@ -279,6 +334,8 @@ class MainActivity : AppCompatActivity(), StreamController.Listener {
                 prefs.username = dialogBinding.editUser.text.toString()
                 prefs.password = dialogBinding.editPassword.text.toString()
                 prefs.autoConnect = dialogBinding.checkAutoConnect.isChecked
+                prefs.captureForAi = dialogBinding.checkCaptureAi.isChecked
+                prefs.captureOriginalToo = dialogBinding.checkCaptureOriginal.isChecked
                 binding.textUrl.text = prefs.url
                 if (controller.isRecording) stopRecording()
                 controller.disconnect()

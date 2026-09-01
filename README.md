@@ -12,7 +12,7 @@ RV1106 보드(Luckfox Pico Ultra W 등)에 붙은 SC3336 카메라 영상을 WiF
                                     안드로이드 앱 (이 저장소)
                                     ├── 실시간 보기 (MediaCodec 하드웨어 디코딩)
                                     ├── 녹화 (재인코딩 없이 MP4 저장)
-                                    ├── 캡처 (JPEG 저장)
+                                    ├── 캡처 (JPEG — 기본 1:1 1000x1000)
                                     └── 갤러리 (저장한 영상/사진 재생·삭제·공유)
 ```
 
@@ -76,6 +76,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 앱을 열고 **설정** 버튼 → RTSP 주소에 `rtsp://<보드IP>:554/live/0` 입력 → 저장.
+같은 설정 화면의 **캡처 저장 형식**에서 AI 분석용 규격(기본)과 원본 해상도 저장을
+고를 수 있습니다.
 
 ## 앱 사용법
 
@@ -83,7 +85,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 |---|---|
 | 연결 / 끊기 | 스트림 접속. 끊기면 자동으로 재연결을 시도합니다 |
 | ● 녹화 | 받은 영상을 그대로 MP4 로 저장. 다시 누르면 정지 |
-| 캡처 | 현재 화면을 JPEG 로 저장 |
+| 캡처 | 현재 화면을 JPEG 로 저장. 기본은 AI 분석용 규격(1:1 · 1000×1000 · 72dpi) |
 | 갤러리 | 저장한 영상/사진 목록. 눌러서 재생, 길게 눌러 내보내기·공유·삭제 |
 | 설정 | RTSP 주소, 아이디/비밀번호, 자동 연결. **보드 찾기** 로 IP 자동 검색 |
 
@@ -103,6 +105,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   붙습니다. SDP 의 rtpmap 을 보고 코덱을 판단해 재조립기와 디코더를 고릅니다.
 - **RTSP 는 TCP interleaved 만 사용합니다.** UDP 를 쓰지 않아 공유기/NAT 환경에서
   안 붙는 문제가 없고, 패킷 유실도 훨씬 적습니다.
+- **캡처가 분석에 바로 쓸 수 있는 규격으로 나옵니다.** 16:9 프레임의 가운데를
+  잘라 **1:1 / 1000×1000 / 72dpi** JPEG 로 저장합니다. 설정에서 끄면 스트림 원본
+  해상도(2304×1296)로, 둘 다 켜면 한 번에 두 장(`_full` 이 원본)이 남습니다.
 - **녹화는 재인코딩이 없습니다.** 보드가 보낸 H.264 를 그대로 MP4 컨테이너에
   담기 때문에 폰이 뜨겁지 않고 배터리도 거의 안 먹으며 원본 화질이 그대로 남습니다.
   대신 녹화 버튼을 누른 뒤 첫 키프레임이 올 때까지(최대 GOP 1개 길이) "준비 중"이
@@ -131,6 +136,7 @@ cd android
 - `RtpH265DepacketizerTest` — FU 재조립, AP, IRAP 키프레임 판정
 - `DigestAuthTest` — RTSP Digest 인증(RFC 2617 예제 벡터로 검증)
 - `SdpInfoTest` — SDP 에서 비디오 트랙 control/payload type 찾기
+- `CaptureFormatTest` — AI 분석용 캡처(가운데 정사각형 crop, JPEG 72dpi 기록)
 
 ## 더 읽을 거리
 
@@ -138,5 +144,5 @@ cd android
 - [보드 설정 자세히](docs/board-setup.md)
 - [지연 시간 줄이기](docs/latency-tuning.md)
 - [두피 관찰용으로 쓰기](docs/scalp-scope.md) — 접사·조명·거리 고정
-- [오토포커스 붙이기](docs/af-guide.md)
+- [오토포커스 붙이기](docs/af-guide.md) — 수동 초점(`af_tool focus`) 포함
 - [문제 해결](docs/troubleshooting.md)

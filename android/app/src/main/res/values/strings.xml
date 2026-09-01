@@ -32,6 +32,9 @@
     <string name="settings_user_label">아이디 (없으면 비워두기)</string>
     <string name="settings_password_label">비밀번호</string>
     <string name="settings_auto_connect">앱을 열면 자동으로 연결</string>
+    <string name="settings_capture_label">캡처 저장 형식</string>
+    <string name="settings_capture_ai">AI 분석용 규격으로 저장 (1:1 · 1000×1000 · 72dpi)</string>
+    <string name="settings_capture_original">원본 해상도 사진도 함께 저장 (_full)</string>
     <string name="settings_hint">보드에서 ifconfig 로 확인한 wlan0 주소를 넣으세요. Luckfox 공식 이미지(rkipc)는 보통 rtsp://보드IP/live/0 입니다.</string>
 
     <string name="msg_invalid_url">RTSP 주소를 먼저 설정하세요</string>
@@ -39,6 +42,7 @@
     <string name="msg_record_empty">저장된 프레임이 없어 파일을 만들지 않았습니다</string>
     <string name="msg_saved_video">저장됨: %1$s</string>
     <string name="msg_saved_photo">캡처 저장됨: %1$s (%2$d×%3$d)</string>
+    <string name="msg_saved_photo_two">캡처 저장됨: %1$s (%2$d×%3$d) + 원본 %4$s</string>
     <string name="msg_zoom_reset">확대를 원래대로 되돌렸습니다</string>
     <string name="msg_snapshot_not_ready">영상이 나오는 중에만 캡처할 수 있습니다</string>
     <string name="msg_snapshot_failed">캡처 저장에 실패했습니다</string>

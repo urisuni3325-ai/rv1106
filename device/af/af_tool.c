@@ -88,6 +88,126 @@ static int load_focus(void)
     return position;
 }
 
+/* 한 줄 입력에서 앞뒤 공백과 개행을 떼어낸다. */
+static void trim(char *s)
+{
+    size_t len = strlen(s);
+    while (len > 0 && (s[len - 1] == '\n' || s[len - 1] == '\r' ||
+                       s[len - 1] == ' '  || s[len - 1] == '\t'))
+        s[--len] = 0;
+    size_t start = 0;
+    while (s[start] == ' ' || s[start] == '\t')
+        start++;
+    if (start)
+        memmove(s, s + start, len - start + 1);
+}
+
+static void focus_help(int step)
+{
+    printf("  +  /  -    %d 스텝씩 이동 (+++ 처럼 붙이면 그만큼 크게)\n", step);
+    printf("  <숫자>     그 위치로 바로 이동 (0~1023)\n");
+    printf("  step <n>   한 번에 움직일 양을 바꾼다\n");
+    printf("  s          지금 위치를 초점값으로 저장\n");
+    printf("  q          끝내기 (엔터만 치면 직전 명령을 한 번 더)\n");
+}
+
+/* 수동으로 초점을 맞춘다.
+ *
+ * 카메라를 열지 않기 때문에 rkipc 를 죽일 필요가 없다. 스트리밍은 그대로 두고
+ * 폰 화면을 보면서 렌즈를 조금씩 옮기다가, 제일 선명한 자리에서 s 를 누르면 된다.
+ * 오토포커스가 안 될 때(무늬가 없는 두피, VCM 이 약할 때) 쓰는 방법이다.
+ */
+static int focus_interactive(gpio_i2c_t *bus, int start, int step,
+                             int min_pos, int max_pos, int backlash, int settle_ms)
+{
+    int position = start;
+    if (position < min_pos) position = min_pos;
+    if (position > max_pos) position = max_pos;
+    if (step < 1) step = 1;
+
+    printf("수동 초점 맞추기 — 폰 화면을 보면서 조절하세요.\n");
+    focus_help(step);
+    printf("\n");
+
+    if (dw9714_set_from_below(bus, position, backlash, settle_ms) < 0) {
+        fprintf(stderr, "이동 실패: %s\n", gpio_i2c_strerror(bus));
+        return -1;
+    }
+    printf("위치 %d\n", position);
+    fflush(stdout);
+
+    char line[64] = {0};
+    char last[64] = {0};
+
+    while (fgets(line, sizeof(line), stdin)) {
+        trim(line);
+        if (line[0] == 0)
+            snprintf(line, sizeof(line), "%s", last);   /* 엔터만 = 직전 명령 반복 */
+        else
+            snprintf(last, sizeof(last), "%s", line);
+
+        if (line[0] == 0)
+            continue;
+        if (!strcmp(line, "q") || !strcmp(line, "quit") || !strcmp(line, "exit"))
+            break;
+        if (!strcmp(line, "h") || !strcmp(line, "?")) {
+            focus_help(step);
+            continue;
+        }
+        if (!strcmp(line, "s") || !strcmp(line, "save")) {
+            save_focus(position);
+            continue;
+        }
+        if (!strncmp(line, "step", 4)) {
+            int value = atoi(line + 4);
+            if (value < 1 || value > 512) {
+                printf("  1~512 사이로 정하세요\n");
+            } else {
+                step = value;
+                printf("  이제 한 번에 %d 씩 움직입니다\n", step);
+            }
+            continue;
+        }
+
+        int target = position;
+        if (line[0] == '+' || line[0] == '-') {
+            char sign = line[0];
+            int count = 0;
+            while (line[count] == sign)
+                count++;
+            if (line[count] != 0) {
+                printf("  모르는 입력입니다. h 를 치면 도움말이 나옵니다\n");
+                continue;
+            }
+            target += (sign == '+' ? 1 : -1) * step * count;
+        } else if (line[0] >= '0' && line[0] <= '9') {
+            target = atoi(line);
+        } else {
+            printf("  모르는 입력입니다. h 를 치면 도움말이 나옵니다\n");
+            continue;
+        }
+
+        if (target < min_pos) target = min_pos;
+        if (target > max_pos) target = max_pos;
+        if (target == position) {
+            printf("위치 %d (끝)\n", position);
+            fflush(stdout);
+            continue;
+        }
+
+        if (dw9714_set_from_below(bus, target, backlash, settle_ms) < 0) {
+            fprintf(stderr, "이동 실패: %s\n", gpio_i2c_strerror(bus));
+            return -1;
+        }
+        position = target;
+        printf("위치 %d\n", position);
+        fflush(stdout);
+    }
+
+    printf("끝냈습니다. 마지막 위치 %d\n", position);
+    return 0;
+}
+
 static void usage(void)
 {
     printf(
@@ -98,6 +218,7 @@ static void usage(void)
 "  ping                 DW9714(0x0C) 가 응답하는지만 본다\n"
 "  set <위치>           렌즈를 그 위치로 옮긴다 (0~1023)\n"
 "  save <위치>          그 위치로 옮기고 초점값으로 저장한다 (수동 보정용)\n"
+"  focus                수동 초점 맞추기 — +/- 로 옮기고 s 로 저장 (카메라 불필요)\n"
 "  sweep                전 구간을 훑는다 — 렌즈가 실제로 움직이는지 눈으로 확인\n"
 "  score                현재 위치의 선명도를 한 번 잰다 (카메라 필요)\n"
 "  af                   오토포커스를 돌리고 결과 위치로 이동한다 (카메라 필요)\n"
@@ -110,7 +231,7 @@ static void usage(void)
 "  --backend <이름>     sysfs (기본) 또는 chardev\n"
 "  --video <경로>       기본 /dev/video0\n"
 "  --roi <퍼센트>       중앙 ROI 크기, 기본 25\n"
-"  --from/--to/--step   sweep 및 af 탐색 구간\n"
+"  --from/--to/--step   sweep·af 의 탐색 구간, focus 의 이동 간격\n"
 "  --settle <ms>        VCM 정착 대기, 기본 25\n"
 "  --backlash <스텝>    히스테리시스 보정용 되돌림, 기본 40\n"
 "  --save               af 결과를 저장한다\n"
@@ -123,10 +244,13 @@ static void usage(void)
 "  af_tool restore                    # 부팅 후 저장된 초점으로 바로 복귀\n"
 "\n"
 "수동 보정 — 카메라를 열지 않으므로 스트리밍을 멈출 필요가 없다.\n"
-"  af_tool set 300     # 폰 화면을 보면서\n"
-"  af_tool set 400     # 여러 위치를 시도해\n"
-"  af_tool save 420    # 제일 선명한 값을 저장\n"
-"  af_tool restore     # 다음부터는 이 한 줄\n");
+"오토포커스가 안 되거나(무늬 없는 두피 등) 부품이 아직 없을 때 쓰는 방법이다.\n"
+"  af_tool focus       # 폰 화면을 보면서 +/- 로 옮기고, 제일 선명할 때 s\n"
+"  af_tool restore     # 다음부터는 이 한 줄\n"
+"\n"
+"한 번에 한 위치만 시도하려면\n"
+"  af_tool set 400     # 그 위치로만 옮긴다\n"
+"  af_tool save 420    # 옮기고 초점값으로 저장한다\n");
 }
 
 int main(int argc, char **argv)
@@ -175,7 +299,6 @@ int main(int argc, char **argv)
         }
         else { fprintf(stderr, "알 수 없는 옵션: %s\n", arg); return 1; }
     }
-    (void)have_step;
 
     if (backend == GPIO_BACKEND_CHARDEV && !strcmp(sda_spec, "32")) {
         sda_spec = "1:0";
@@ -194,7 +317,7 @@ int main(int argc, char **argv)
 
     /* I2C 를 열기 전에 명령 이름부터 확인한다. 오타 때문에 GPIO 를 잡을 이유가 없다. */
     static const char *const commands[] = {
-        "scan", "ping", "set", "sweep", "score", "af", "restore", "save", NULL
+        "scan", "ping", "set", "sweep", "score", "af", "restore", "save", "focus", NULL
     };
     int known = 0;
     for (int i = 0; commands[i]; i++) {
@@ -296,6 +419,16 @@ int main(int argc, char **argv)
         }
         if (!status)
             dw9714_set_from_below(bus, cfg.min_pos, backlash, settle_ms);
+    }
+    else if (!strcmp(command, "focus")) {
+        int start = load_focus();
+        if (start < 0)
+            start = (cfg.min_pos + cfg.max_pos) / 2;
+        /* --step 을 안 주면 눈으로 차이가 보일 만큼만 움직인다. */
+        int focus_step = have_step ? sweep_step : 20;
+        if (focus_interactive(bus, start, focus_step, cfg.min_pos, cfg.max_pos,
+                              backlash, settle_ms) < 0)
+            status = 1;
     }
     else if (!strcmp(command, "restore")) {
         int position = load_focus();

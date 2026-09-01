@@ -31,6 +31,10 @@ object MediaRepository {
     fun newPhotoFile(context: Context): File =
         File(photoDir(context), "IMG_${timestamp()}.jpg")
 
+    /** 같은 캡처를 다른 이름으로 하나 더 남길 때. IMG_x.jpg -> IMG_x_full.jpg */
+    fun variantOf(file: File, suffix: String): File =
+        File(file.parentFile, "${file.nameWithoutExtension}$suffix.${file.extension}")
+
     fun listAll(context: Context): List<MediaItem> {
         val videos = videoDir(context).listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
             ?.map { MediaItem(it, true) } ?: emptyList()
