@@ -240,6 +240,16 @@ int main(int argc, char **argv)
                    "  확인: 4.7k 풀업이 3.3V 에 붙어 있는지, GND 공통인지,\n"
                    "        모듈 전원(AF-VCC)이 들어갔는지, SDA/SCL 이 바뀌지 않았는지\n");
             status = 1;
+        } else if (found > 8) {
+            /* 실제 버스에 장치가 이렇게 많을 리 없다. SDA 가 LOW 에 붙어 있으면
+             * 모든 주소가 ACK 로 읽힌다. */
+            printf("\n  ** %d 개는 실제 장치가 아닙니다. SDA 가 LOW 에 붙잡힌 상태입니다. **\n"
+                   "  모듈이 선을 물고 있습니다. 확인할 것:\n"
+                   "    - 센서의 RESET / PWDN 이 떠 있지 않은지 (RESET=HIGH, PWDN=GND)\n"
+                   "    - 센서가 XCLK 없이 동작하지 못하는 것은 아닌지\n"
+                   "    - VCM 만 쓸 거라면 센서 전원과 제어선을 아예 빼는 편이 낫습니다\n",
+                   found);
+            status = 1;
         }
     }
     else if (!strcmp(command, "ping")) {

@@ -321,6 +321,20 @@ gpio_i2c_t *gpio_i2c_open(gpio_backend_t backend, int sda, int scl, int delay_us
     pin_release(bus, &bus->scl);
     udelay(bus->delay_us * 4);
     bus_recover(bus);
+
+    /* 아무도 통신하지 않을 때 두 선은 풀업으로 HIGH 여야 한다.
+     * LOW 에 붙어 있으면 모든 주소가 ACK 로 읽혀서 "전부 응답"이라는
+     * 그럴듯한 오진이 나온다. 여기서 미리 걸러낸다. */
+    int sda_idle = pin_read(bus, &bus->sda);
+    int scl_idle = pin_read(bus, &bus->scl);
+
+    if (sda_idle == 0 || scl_idle == 0) {
+        set_err(bus,
+                "버스가 유휴 상태에서 LOW 입니다 (SDA=%d SCL=%d). "
+                "풀업이 없거나, 모듈이 선을 붙잡고 있습니다. "
+                "센서라면 RESET/PWDN 이 떠 있는지, XCLK 가 필요한지 확인하세요",
+                sda_idle, scl_idle);
+    }
     return bus;
 }
 
