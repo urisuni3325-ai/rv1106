@@ -157,6 +157,8 @@ int main(int argc, char **argv)
         if (!strcmp(arg, "-v")) { verbose = 1; }
         else if (!strcmp(arg, "--save")) { do_save = 1; }
         else if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) { usage(); return 0; }
+        /* 위치 인자(set/save 의 위치값)는 아래 명령 처리기가 직접 읽는다. */
+        else if (arg[0] != '-') { continue; }
         else if (!next) { fprintf(stderr, "%s 에 값이 필요합니다\n", arg); return 1; }
         else if (!strcmp(arg, "--sda")) { sda_spec = next; i++; }
         else if (!strcmp(arg, "--scl")) { scl_spec = next; i++; }
