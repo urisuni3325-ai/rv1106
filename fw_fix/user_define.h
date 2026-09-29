@@ -643,6 +643,7 @@ void Filter_life_save(void);
 void Rb_Load(void);
 void Rb_Sync_Buffer(void);
 BYTE Rb_Check(BYTE ch);
+void Rb_Clear(BYTE ch);
 void Current_pid(void);
 void Cal_ion_i(void);
 

@@ -4843,6 +4843,30 @@ BYTE Rb_Check(BYTE ch)
 	return 0;
 }
 
+// 되쓰기 차단 기록 지우기
+//  ch : 1 = 필터1 만 , 2 = 필터2 만 , 0 = 양쪽 전체 (매직까지 무효화)
+//  치구에서 칩을 다시 구운 뒤 부른다. 같은 칩을 재기록하면 chip_id 는 같고
+//  잔량은 3000L 로 돌아가므로, 기록을 지우지 않으면 본체가 되쓰기로 본다.
+//  정품 펌웨어에는 이 함수를 부르는 곳이 없다 (치구만 사용)
+void Rb_Clear(BYTE ch)
+{
+	BYTE i;
+
+	if((ch == 0) || (ch == 1)){
+		for(i=0;i<RB_HIST;i++){	lRbId1[i] = 0;	wRbLife1[i] = 0;	}
+		bRbIdx1 = 0;
+	}
+
+	if((ch == 0) || (ch == 2)){
+		for(i=0;i<RB_HIST;i++){	lRbId2[i] = 0;	wRbLife2[i] = 0;	}
+		bRbIdx2 = 0;
+	}
+
+	if(ch == 0)	wRbMagic = 0;      // 기록 자체를 없앤 상태로 되돌린다
+
+	eep_data_fg = 1;               // 다음 100ms 주기에 플래시 기록
+}
+
 void FlashWrite(void)
 {
 	uint8_t result;
