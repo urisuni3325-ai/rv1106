@@ -1268,6 +1268,9 @@ extern long lPump_rpm;
 
 extern const ULONG filter_wr_tbl[5];
 extern BYTE  bFwSel, bFwState, bFwErr1, bFwErr2;
+#if FILTER_WRITER
+extern uint8_t bFwKeyMode;
+#endif
 extern ULONG lFwRead1, lFwRead2;
 // 필터 쓰기 치구 : 출수버튼 RGB 색 지정
 void fcLed_Fw_Run(BYTE r, BYTE g, BYTE b)
@@ -1347,6 +1350,9 @@ void fcDisplay(void)
 		
 		fcLed_Fw_Sel(bFwSel);       // 선택된 버튼 LED (상태와 무관하게 항상 표시)
 		
+		// 세정 LED : 위조 굽기 모드일 때 점등 (완료 상태에서도 모드 확인 가능)
+		fcLed_Clean(bFwKeyMode ? 1 : 0);
+		
 		if(bFwState == 1)           // 쓰는중 : 출수버튼 소등 , - - -
 		{
 			DISP_SetDigitNum(0, FONT_MINUS, 0);
@@ -1370,9 +1376,13 @@ void fcDisplay(void)
 			Fw_Disp3(0, lFwRead1, bFwErr1);
 			Fw_Disp3(3, lFwRead2, bFwErr2);
 		}
-		else                        // 쓰기 전 : 빨강 + 선택값
+		else                        // 쓰기 전 : 선택값 + 모드별 색
 		{
-			fcLed_Fw_Run(COLOR_RED_R, COLOR_RED_G, COLOR_RED_B);
+			// 정품 = 빨강 , 키위조 = 파랑 , ID위조 = 노랑
+			if(bFwKeyMode == 1)			fcLed_Fw_Run(COLOR_BLUE_R,   COLOR_BLUE_G,   COLOR_BLUE_B);
+			else if(bFwKeyMode == 2)	fcLed_Fw_Run(COLOR_YELLOW_R, COLOR_YELLOW_G, COLOR_YELLOW_B);
+			else						fcLed_Fw_Run(COLOR_RED_R,    COLOR_RED_G,    COLOR_RED_B);
+			
 			v = filter_wr_tbl[bFwSel];
 			Fw_Disp3(0, v, 0);
 			Fw_Disp3(3, v, 0);

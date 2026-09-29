@@ -5976,6 +5976,12 @@ void Key_exe(void)
 		case TCH_ALKALI :		bFwSel = 3;	break;   //   31 L
 		case TCH_COOLALKALI :	bFwSel = 4;	break;   //    6 L
 		
+		case TCH_CLEAN :
+		case TCH_CLEAN_LONG :
+			// 굽기 모드 순환 : 정품 -> 키위조 -> ID위조
+			if(++bFwKeyMode > 2)	bFwKeyMode = 0;
+			break;
+		
 		case TCH_START :
 			if(bFwState != 1)	bFwState = 1;        // 쓰기 요청만 세움
 			key_new = 0x00;
