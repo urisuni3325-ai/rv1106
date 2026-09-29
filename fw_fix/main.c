@@ -4790,6 +4790,13 @@ void Rb_Load(void)
 //  최소 잔량을 본체에 남겨 두고, 그보다 RB_MARGIN_L 이상 늘면 거부한다.
 BYTE Rb_Check(BYTE ch)
 {
+#if FILTER_WRITER
+	// 치구 모드 : 되쓰기 판정도 기록 갱신도 하지 않는다
+	//  치구는 칩을 authoring 하는 쪽이라 판정 대상이 아니고,
+	//  굽기 성공 시 Rb_Clear() 로 기록을 지우므로 여기서 손댈 필요가 없다
+	ch = ch;
+	return 0;
+#else
 	ULONG *pId;
 	WORD  *pLife;
 	BYTE  *pIdx;
@@ -4841,6 +4848,7 @@ BYTE Rb_Check(BYTE ch)
 	}
 
 	return 0;
+#endif
 }
 
 // 되쓰기 차단 기록 지우기
