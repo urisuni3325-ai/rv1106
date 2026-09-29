@@ -1267,7 +1267,8 @@ extern ULONG disp_flow_hot;
 extern long lPump_rpm;
 
 extern const ULONG filter_wr_tbl[5];
-extern BYTE  bFwSel, bFwState, bFwErr1, bFwErr2;
+extern BYTE  bFwSel, bFwState, bFwErr1, bFwErr2, bFwDispMode;
+extern WORD  wFwUid1, wFwUid2;
 #if FILTER_WRITER
 extern uint8_t bFwKeyMode;
 #endif
@@ -1352,6 +1353,23 @@ void fcDisplay(void)
 		
 		// 세정 LED : 위조 굽기 모드일 때 점등 (완료 상태에서도 모드 확인 가능)
 		fcLed_Clean(bFwKeyMode ? 1 : 0);
+		
+		// UID 확인 화면 : 좌 = 필터1 UID 합 , 우 = 필터2 UID 합
+		if(bFwDispMode)
+		{
+			fcLed_Fw_Run(0, 0, 0);          // 출수버튼 소등
+			
+			DISP_SetDigitNum(0, (BYTE)(wFwUid1/100%10), 0);
+			DISP_SetDigitNum(1, (BYTE)(wFwUid1/10%10),  0);
+			DISP_SetDigitNum(2, (BYTE)(wFwUid1%10),     0);
+			
+			DISP_SetDigitNum(3, (BYTE)(wFwUid2/100%10), 0);
+			DISP_SetDigitNum(4, (BYTE)(wFwUid2/10%10),  0);
+			DISP_SetDigitNum(5, (BYTE)(wFwUid2%10),     0);
+			
+			HT16D33_Update();
+			return;
+		}
 		
 		if(bFwState == 1)           // 쓰는중 : 출수버튼 소등 , - - -
 		{

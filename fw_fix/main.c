@@ -56,6 +56,10 @@ ULONG lFwRead1 = 0;       // 검증 읽기 값
 ULONG lFwRead2 = 0;
 BYTE  bFwErr1  = 0;       // 필터1 원인코드 (0 = 정상)
 BYTE  bFwErr2  = 0;       // 필터2 원인코드 (0 = 정상)
+BYTE  bFwDispMode = 0;    // 0 = 값 표시 , 1 = UID 확인 표시
+BYTE  bFwUidRdCnt = 0;    // UID 갱신 분주
+WORD  wFwUid1 = 0;        // 필터1 UID 16바이트 합 % 1000
+WORD  wFwUid2 = 0;        // 필터2 UID 16바이트 합 % 1000
 
 
 #define	PH_DISP			0	//1:usa 수출용TB 0:korea 국내용
@@ -719,6 +723,7 @@ void Filter_Write_Exe(void);
 BYTE Filter_Write_1(ULONG v);
 BYTE Filter_Write_2(ULONG v);
 BYTE Fw_ErrCode(int8_t e);
+void Fw_Uid_Read(void);
 /* Private define ------------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
 
@@ -1913,6 +1918,13 @@ void mainloop(void)
 #if FILTER_WRITER
 			lError     = 0;                           // 치구 모드 : 에러로 키가 막히지 않게
 			serial_err = 0;
+			
+			// UID 확인 화면은 100ms 마다 다시 읽는다 (칩 바꿔 끼우며 비교)
+			if(bFwDispMode)
+			{
+				if(++bFwUidRdCnt >= 10)	{ bFwUidRdCnt = 0;	Fw_Uid_Read(); }
+			}
+			else	bFwUidRdCnt = 0;
 			
 			if(bFwState == 1)	Filter_Write_Exe();   // 표시 갱신 후 실행
 #endif
@@ -5982,6 +5994,13 @@ void Key_exe(void)
 			if(++bFwKeyMode > 2)	bFwKeyMode = 0;
 			break;
 		
+		case TCH_ML :
+		case TCH_ML_MAX :
+			// UID 확인 화면 토글
+			bFwDispMode ^= 1;
+			if(bFwDispMode)	Fw_Uid_Read();
+			break;
+		
 		case TCH_START :
 			if(bFwState != 1)	bFwState = 1;        // 쓰기 요청만 세움
 			key_new = 0x00;
@@ -7183,6 +7202,27 @@ void Warning_voice(void)
         bRestoreMute = 0;
     }*/
 }
+// UID 확인용 : 필터 1,2 의 UID 16바이트 합을 3자리로 만든다
+//  0x4B 미지원이면 전부 0xFF 로 읽혀 16 x 255 = 4080 -> 080 이 나온다
+//  반단선이면 전부 0x00 -> 000
+//  정상이면 칩마다 다른 값이 나온다 (칩을 바꿔 끼워 비교할 것)
+void Fw_Uid_Read(void)
+{
+	uint8_t uid[16];
+	uint8_t i;
+	WORD    sum;
+	
+	GD25D10_Read16Bytes_UID(0, uid);
+	sum = 0;
+	for(i=0;i<16;i++)	sum += uid[i];
+	wFwUid1 = sum % 1000;
+	
+	GD25D10_2_Read16Bytes_UID(0, uid);
+	sum = 0;
+	for(i=0;i<16;i++)	sum += uid[i];
+	wFwUid2 = sum % 1000;
+}
+
 // last_load_err -> 화면 표시용 2자리 코드로 변환
 BYTE Fw_ErrCode(int8_t e)
 {
