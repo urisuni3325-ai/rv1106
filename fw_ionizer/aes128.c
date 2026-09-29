@@ -403,6 +403,19 @@ void LoadFilter_Init(void)
     chip_id2 |= (uint32_t)((r_data2[2] & 0xFF)<<16);
     chip_id2 |= (uint32_t)((r_data2[3] & 0xFF)<<24);*/
 }
+#if FILTER_WRITER
+// 위조 칩 굽기 (에러 확인용) : 정상 펌웨어에는 포함되지 않음
+//   0 = 정품   정상 마스터 키 + 정상 chip_id  -> 에러 없음
+//   1 = 키위조 다른 마스터 키                 -> 정품 펌웨어에서 -1  -> E03 / E04
+//   2 = ID위조 정상 키 + 틀린 chip_id         -> 정품 펌웨어에서 -5  -> E03 / E04
+uint8_t bFwKeyMode = 0;
+
+#define FW_FAKE_ID_XOR   0x5A5A5A5AUL
+
+static const uint8_t fake_key1[16] = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00 };
+static const uint8_t fake_key2[16] = { 0x0F, 0x1E, 0x2D, 0x3C, 0x4B, 0x5A, 0x69, 0x78, 0x87, 0x96, 0xA5, 0xB4, 0xC3, 0xD2, 0xE1, 0xF0 };
+#endif
+
 // 칩 존재 판정 : JEDEC ID (0x9F) 로 1차 확인
 // 칩이 없으면 MISO 풀업으로 0xFF , 반단선이면 0x00 이 읽힘
 static int is_chip_absent(uint8_t mid, uint8_t mtype, uint8_t mcap)
@@ -437,7 +450,12 @@ void LoadFilter1_Init(void)
   // 채널 1: UID 읽기
   GD25D10_Read16Bytes_UID(0, uid1); 
 	
+#if FILTER_WRITER
+	if(bFwKeyMode == 1)	AES128_init(&temp_ctx, fake_key1);   // 키위조 : 다른 마스터 키
+	else				AES128_init(&temp_ctx, master_key1);
+#else
 	AES128_init(&temp_ctx, master_key1);
+#endif
 	AES128_ECB_encrypt(&temp_ctx, uid1, derived_key1);
 
   // 각 컨텍스트 초기화
@@ -448,6 +466,10 @@ void LoadFilter1_Init(void)
 	          | ((uint32_t)uid1[1] << 8)
 	          | ((uint32_t)uid1[2] << 16)
 	          | ((uint32_t)uid1[3] << 24);
+
+#if FILTER_WRITER
+	if(bFwKeyMode == 2)	chip_id1 ^= FW_FAKE_ID_XOR;          // ID위조 : 틀린 chip_id
+#endif
 	/*
 	GD25D10_Read20Bytes(ADDR_F1_ID, r_data1,4);
 
@@ -479,7 +501,12 @@ void LoadFilter2_Init(void)
 	GD25D10_2_Read16Bytes_UID(0, uid2); 
 	
 	
-	AES128_init(&temp_ctx, master_key2);               // 1. 마스터 키로 암호화 준비
+#if FILTER_WRITER
+	if(bFwKeyMode == 1)	AES128_init(&temp_ctx, fake_key2);   // 키위조 : 다른 마스터 키
+	else				AES128_init(&temp_ctx, master_key2);
+#else
+	AES128_init(&temp_ctx, master_key2);
+#endif
 	AES128_ECB_encrypt(&temp_ctx, uid2, derived_key2);
 	
 	// 각 컨텍스트 초기화
@@ -489,6 +516,10 @@ void LoadFilter2_Init(void)
 	          | ((uint32_t)uid2[1] << 8)
 	          | ((uint32_t)uid2[2] << 16)
 	          | ((uint32_t)uid2[3] << 24);
+
+#if FILTER_WRITER
+	if(bFwKeyMode == 2)	chip_id2 ^= FW_FAKE_ID_XOR;          // ID위조 : 틀린 chip_id
+#endif
 	          
 	/*GD25D10_2_Read20Bytes(ADDR_F2_ID, r_data2,4);
 	

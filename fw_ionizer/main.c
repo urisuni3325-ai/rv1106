@@ -509,6 +509,23 @@ BYTE bCoolReadyFg = 0;
 
 uint32_t 	eep_data=0;
 
+#if FILTER_WRITER
+// 필터 칩 쓰기 치구
+const ULONG filter_wr_tbl[5] = { FW_VAL_0, FW_VAL_1, FW_VAL_2, FW_VAL_3, FW_VAL_4 };
+BYTE  bFwSel   = 0;       // 선택 인덱스 0~4
+BYTE  bFwState = 0;       // 0 대기 , 1 쓰는중 , 2 완료 , 3 실패
+BYTE  bFwErr1  = 0;       // 필터1 원인코드 (0 = 정상)
+BYTE  bFwErr2  = 0;       // 필터2 원인코드 (0 = 정상)
+ULONG lFwValue = 0;       // 쓸 값 (mL)
+ULONG lFwRead1 = 0;       // 검증 읽기 값
+ULONG lFwRead2 = 0;
+BYTE  bFwDispMode = 0;    // 0 = 값 표시 , 1 = UID 확인 표시
+BYTE  bFwUidRdCnt = 0;    // UID 갱신 분주
+BYTE  bFwRbClrCnt = 0;    // 되쓰기 기록 초기화 표시 잔여 (10ms 단위)
+WORD  wFwUid1 = 0;        // 필터1 UID 16바이트 합 % 1000
+WORD  wFwUid2 = 0;        // 필터2 UID 16바이트 합 % 1000
+#endif
+
 // 되쓰기(롤백) 차단 기록 : 슬롯별로 최근 RB_HIST 개 칩의 chip_id 와 최소 잔량(L)
 ULONG	lRbId1[RB_HIST]={0,}, lRbId2[RB_HIST]={0,};
 WORD	wRbLife1[RB_HIST]={0,}, wRbLife2[RB_HIST]={0,};
@@ -1789,7 +1806,10 @@ void GPIOE_IRQHandler_Input(void) {
 
 void mainloop(void)
 {
-			
+#if FILTER_WRITER
+	backlight_en_fg = 1;        // 치구 모드 : 표시 항상 ON
+#endif
+	
 	while(1)
 	{
 
@@ -1897,6 +1917,22 @@ void mainloop(void)
 						
 
 			fcDisplay();
+			
+#if FILTER_WRITER
+			lError     = 0;                           // 치구 모드 : 에러로 키가 막히지 않게
+			serial_err = 0;
+			
+			if(bFwRbClrCnt)		bFwRbClrCnt--;        // 기록 초기화 표시 타이머
+			
+			// UID 확인 화면은 100ms 마다 다시 읽는다 (칩 바꿔 끼우며 비교)
+			if(bFwDispMode)
+			{
+				if(++bFwUidRdCnt >= 10)	{ bFwUidRdCnt = 0;	Fw_Uid_Read(); }
+			}
+			else	bFwUidRdCnt = 0;
+			
+			if(bFwState == 1)	Filter_Write_Exe();   // 표시 갱신 후 실행
+#endif
 			
 			Door_Check();
 
@@ -6122,6 +6158,54 @@ void key_input(void)
 **************************************************************************************************/
 void Key_exe(void)
 {
+#if FILTER_WRITER
+	switch(key_new)
+	{
+		case TCH_HOT :
+		case TCH_HOT_LONG :		bFwSel = 0;	break;   // 3000 L
+		case TCH_PURE :			bFwSel = 1;	break;   //  101 L
+		case TCH_COOL :			bFwSel = 2;	break;   //   71 L
+		case TCH_ALKALI :		bFwSel = 3;	break;   //   31 L
+		case TCH_COOLALKALI :	bFwSel = 4;	break;   //    6 L
+		
+		case TCH_CLEAN :
+			// 굽기 모드 순환 : 정품(빨강) -> 키위조(파랑) -> ID위조(노랑)
+			if(++bFwKeyMode > 2)	bFwKeyMode = 0;
+			break;
+		
+		case TCH_CLEAN_LONG :
+			// 세정 3초 : 되쓰기 차단 기록 전체 초기화
+			Rb_Clear(0);
+			bFwRbClrCnt = 100;                       // 1초간 표시
+			Voice_output(SND_CONFIRM);
+			key_new = 0x00;
+			return;
+		
+		case TCH_ML :
+		case TCH_ML_MAX :
+			// UID 확인 화면 토글
+			bFwDispMode ^= 1;
+			if(bFwDispMode)	Fw_Uid_Read();
+			break;
+		
+		case TCH_START :
+			if(bFwState != 1)	bFwState = 1;        // 쓰기 요청만 세움
+			key_new = 0x00;
+			return;
+		
+		default :
+			key_new = 0x00;
+			return;
+	}
+	
+	bFwState = 0;                                    // 선택 변경 -> 대기
+	bFwErr1  = 0;	bFwErr2 = 0;
+	Voice_output(SND_SELECT);
+	
+	key_new = 0x00;
+	return;
+#endif
+
   	switch(key_new)
   	{
   	  	case TCH_MODE : 	// 모드
@@ -7305,6 +7389,114 @@ void Warning_voice(void)
         bRestoreMute = 0;
     }*/
 }
+#if FILTER_WRITER
+/**************************************************************************************************
+		필터 칩 쓰기 치구
+**************************************************************************************************/
+// UID 확인용 : 필터 1,2 의 UID 16바이트 합을 3자리로 만든다
+//  0x4B 미지원이면 전부 0xFF 로 읽혀 16 x 255 = 4080 -> 080 이 나온다
+//  반단선이면 전부 0x00 -> 000
+//  정상이면 칩마다 다른 값이 나온다 (칩을 바꿔 끼워 비교할 것)
+void Fw_Uid_Read(void)
+{
+	uint8_t uid[16];
+	uint8_t i;
+	WORD    sum;
+	
+	GD25D10_Read16Bytes_UID(0, uid);
+	sum = 0;
+	for(i=0;i<16;i++)	sum += uid[i];
+	wFwUid1 = sum % 1000;
+	
+	GD25D10_2_Read16Bytes_UID(0, uid);
+	sum = 0;
+	for(i=0;i<16;i++)	sum += uid[i];
+	wFwUid2 = sum % 1000;
+}
+
+// last_load_err -> 화면 표시용 2자리 코드로 변환
+BYTE Fw_ErrCode(int8_t e)
+{
+	if(e ==   0)	return  0;
+	if(e == -12)	return 12;      // 칩 미연결 / 하네스 불량
+	if(e == -11)	return 11;      // 빈 칩 : 기록이 안 됨
+	if(e ==  -1)	return  1;      // 키 불일치
+	if(e ==  -3)	return  3;      // CRC 손상
+	if(e ==  -4)	return  4;      // 값 범위 초과
+	if(e ==  -5)	return  5;      // chip_id 불일치
+	
+	return 8;                       // 미정의
+}
+
+// 필터 1 쓰기 : 0 = 성공 , 그외 = 원인 코드
+BYTE Filter_Write_1(ULONG v)
+{
+	LoadFilter1_Init();                      // 새 칩 UID 로 AES 키 재유도 + chip_id1
+	
+	if(!bChipPresent1)	return 12;           // JEDEC ID 로 미연결 확인
+	
+	ReadCnt( ADDR_F1 , v);                   // 암호문 생성 (SaveCipher1)
+	GD25D10_EraseSector4K(0);
+	delay_1ms(10);
+	SaveFilter( ADDR_F1_ID , v);             // chip_id + 암호문 20바이트 기록
+	delay_1ms(10);
+	
+	lFwRead1 = LoadFilter(ADDR_F1);          // 검증 읽기
+	
+	if(last_load_err1 != 0)	return Fw_ErrCode(last_load_err1);
+	if(lFwRead1 != v)		return 9;        // 값 불일치
+	
+	Rb_Clear(1);                             // 새로 구웠으니 되쓰기 기록 초기화
+	
+	return 0;
+}
+
+// 필터 2 쓰기 : 0 = 성공 , 그외 = 원인 코드
+BYTE Filter_Write_2(ULONG v)
+{
+	LoadFilter2_Init();
+	
+	if(!bChipPresent2)	return 12;
+	
+	ReadCnt_2( ADDR_F2 , v);
+	GD25D10_2_EraseSector4K(0);
+	delay_1ms(10);
+	SaveFilter_2( ADDR_F2_ID , v);
+	delay_1ms(10);
+	
+	lFwRead2 = LoadFilter_2(ADDR_F2);
+	
+	if(last_load_err2 != 0)	return Fw_ErrCode(last_load_err2);
+	if(lFwRead2 != v)		return 9;
+	
+	Rb_Clear(2);                             // 새로 구웠으니 되쓰기 기록 초기화
+	
+	return 0;
+}
+
+// 필터 1,2 에 선택값을 쓰고 읽어서 검증
+void Filter_Write_Exe(void)
+{
+	lFwValue = filter_wr_tbl[bFwSel];
+	
+	lFwRead1 = 0;	lFwRead2 = 0;
+	
+	bFwErr1 = Filter_Write_1(lFwValue);      // 한쪽이 실패해도
+	bFwErr2 = Filter_Write_2(lFwValue);      // 다른쪽은 계속 진행
+	
+	if( (bFwErr1 == 0) && (bFwErr2 == 0) )
+	{
+		bFwState = 2;                        // 완료
+		Voice_output(SND_CONFIRM);           // 띠링
+	}
+	else
+	{
+		bFwState = 3;                        // 실패
+		Voice_output(SND_FAIL);
+	}
+}
+#endif  /* FILTER_WRITER */
+
 /**************************************************************************************************
 		필터 IC에 필터값 저장
 **************************************************************************************************/

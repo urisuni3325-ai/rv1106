@@ -17,6 +17,22 @@
 
 //#define	DEBUG_FLOW		1
 
+/***************************************************************************
+   빌드 선택
+     0 = 이온수기 본체 프로그램
+     1 = 필터 칩 쓰기 치구 프로그램
+   나머지 소스는 두 빌드가 완전히 동일하다. 이 줄만 바꾼다.
+****************************************************************************/
+#define FILTER_WRITER       0
+
+/* 치구에서 쓸 필터 값 (mL 단위 , 본체는 filter1_life 를 mL 로 다룬다)
+   온수 / 정수 / 냉수 / 알칼리수 / 냉알칼리수 버튼 순 */
+#define FW_VAL_0         3000000    /* 온수       버튼 : 3000 L */
+#define FW_VAL_1          101000    /* 정수       버튼 :  101 L */
+#define FW_VAL_2           71000    /* 냉수       버튼 :   71 L */
+#define FW_VAL_3           31000    /* 알칼리수   버튼 :   31 L */
+#define FW_VAL_4            6000    /* 냉알칼리수 버튼 :    6 L */
+
 
 #define BL_IDLE_CNT      6000u //6000u   // 1분   : 무입력 판정    
 #define BL_FULL_CNT      3000u//3000u  // 30초  : 100% 유지       
@@ -644,6 +660,13 @@ void Rb_Load(void);
 void Rb_Sync_Buffer(void);
 BYTE Rb_Check(BYTE ch);
 void Rb_Clear(BYTE ch);
+
+/* 필터 칩 쓰기 치구 (FILTER_WRITER 1 에서만 동작) */
+void Filter_Write_Exe(void);
+BYTE Filter_Write_1(ULONG v);
+BYTE Filter_Write_2(ULONG v);
+BYTE Fw_ErrCode(int8_t e);
+void Fw_Uid_Read(void);
 void Current_pid(void);
 void Cal_ion_i(void);
 
