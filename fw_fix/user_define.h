@@ -18,17 +18,6 @@
 //#define	DEBUG_FLOW		1
 
 
-#define FILTER_WRITER       1    // 1 = 필터 쓰기 전용 치구 모드 , 0 = 정상 동작
-
-
-
-// 필터 쓰기 값 : 온수 / 정수 / 냉수 / 알칼리수 / 냉알칼리수 버튼 순
-#define FW_VAL_0         3000000    // 온수       버튼 : 3000 L
-#define FW_VAL_1          101000    // 정수       버튼 :  101 L
-#define FW_VAL_2           71000    // 냉수       버튼 :   71 L
-#define FW_VAL_3           31000    // 알칼리수   버튼 :   31 L
-#define FW_VAL_4            6000    // 냉알칼리수 버튼 :    6 L
-
 #define BL_IDLE_CNT      6000u //6000u   // 1분   : 무입력 판정    
 #define BL_FULL_CNT      3000u//3000u  // 30초  : 100% 유지       
 #define BL_DIM_CNT       1000u   // 10초  : 20% 유지        
@@ -153,6 +142,13 @@
 #define	ERR_PELTIER_TEMP		0x0800  //E11
 */
 
+
+/* 필터 칩 JEDEC 제조사 확인
+   0x9F 로 읽은 Manufacturer ID 가 다르면 정품 칩이 아닌 것으로 본다.
+   양산 전에 실제 칩의 값을 확인할 것. 값이 다르면 매 부팅마다 E01 / E02 가
+   뜨므로 바로 알 수 있고, GD25_MID_CHECK 를 0 으로 두면 확인을 건너뛴다. */
+#define GD25_MID_CHECK		   1     /* 0 = 제조사 확인 안 함 */
+#define GD25_MID_EXPECT		0xC8     /* GigaDevice */
 
 #define SMPS_TEMP_ERR_ADC     944    // 85.0도 이상 -> 에러 (5초 연속)
 #define SMPS_TEMP_CLR_ADC    1050    // 80.0도 이하 -> 해제 (10초 연속)
@@ -518,7 +514,23 @@
 #define 	ADD_AUTO_CLEAN_1	30
 #define 	ADD_AUTO_CLEAN_2	31
 
-#define 	ADD_INIT					    32
+#define 	ADD_INIT					    32   /* 32~35 : DATA_INIT 매직 4바이트 */
+
+/*-------------------------------------------------------------------------*/
+/*        되쓰기(롤백) 차단 기록  -  데이터 플래시 36~87번지               */
+/*        0~31 설정값 , 32~35 DATA_INIT 매직 -> 33번지는 사용 불가          */
+/*        FlashWrite() 가 256바이트 페이지를 통째로 쓰므로 36~255 는 여유   */
+/*-------------------------------------------------------------------------*/
+#define 	ADD_RB_MAGIC		36   /* 2바이트 (36,37) 기록 유효 표식        */
+#define 	ADD_RB_IDX1			38   /* 1바이트 필터1 다음 덮어쓸 칸          */
+#define 	ADD_RB_IDX2			39   /* 1바이트 필터2 다음 덮어쓸 칸          */
+#define 	ADD_RB_TBL1			40   /* 필터1 (chip_id 4B + 잔량L 2B) x 4 = 24B (40~63) */
+#define 	ADD_RB_TBL2			64   /* 필터2 24B (64~87)                     */
+
+#define 	RB_MAGIC		0xA55A   /* 기록 유효 표식                        */
+#define 	RB_HIST				 4   /* 슬롯당 기억하는 칩 개수               */
+#define 	RB_MARGIN_L			20   /* 잔량이 기록보다 20L 이상 늘면 되쓰기   */
+#define 	RB_STEP_L			10   /* 10L 줄어들 때마다 기록 갱신 (플래시 수명) */
 
 
 #define 	DATA_INIT	0x53525190
@@ -628,10 +640,9 @@ void F1_life_reload(void);
 void F2_life_reload(void);
 void Filter_life_check(void)   ;
 void Filter_life_save(void);
-void Filter_Write_Exe(void);
-BYTE Filter_Write_1(ULONG v);
-BYTE Filter_Write_2(ULONG v);
-BYTE Fw_ErrCode(int8_t e);
+void Rb_Load(void);
+void Rb_Sync_Buffer(void);
+BYTE Rb_Check(BYTE ch);
 void Current_pid(void);
 void Cal_ion_i(void);
 

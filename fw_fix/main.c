@@ -45,23 +45,6 @@ static unsigned char Buffer[BufferSize];
 #include "Ntc.c"
 
 
-
-// 필터 쓰기 치구 모드
-// 필터 쓰기 치구 모드
-const ULONG filter_wr_tbl[5] = { FW_VAL_0, FW_VAL_1, FW_VAL_2, FW_VAL_3, FW_VAL_4 };
-BYTE  bFwSel   = 0;       // 선택 인덱스 0~4
-BYTE  bFwState = 0;       // 0 대기 , 1 쓰기요청 , 2 완료 , 3 에러
-ULONG lFwValue = 0;       // 쓸 값
-ULONG lFwRead1 = 0;       // 검증 읽기 값
-ULONG lFwRead2 = 0;
-BYTE  bFwErr1  = 0;       // 필터1 원인코드 (0 = 정상)
-BYTE  bFwErr2  = 0;       // 필터2 원인코드 (0 = 정상)
-BYTE  bFwDispMode = 0;    // 0 = 값 표시 , 1 = UID 확인 표시
-BYTE  bFwUidRdCnt = 0;    // UID 갱신 분주
-WORD  wFwUid1 = 0;        // 필터1 UID 16바이트 합 % 1000
-WORD  wFwUid2 = 0;        // 필터2 UID 16바이트 합 % 1000
-
-
 #define	PH_DISP			0	//1:usa 수출용TB 0:korea 국내용
 
 #define 	I_LIMIT  		3000	
@@ -525,6 +508,12 @@ BYTE bCoolReadyFg = 0;
 
 
 uint32_t 	eep_data=0;
+
+// 되쓰기(롤백) 차단 기록 : 슬롯별로 최근 RB_HIST 개 칩의 chip_id 와 최소 잔량(L)
+ULONG	lRbId1[RB_HIST]={0,}, lRbId2[RB_HIST]={0,};
+WORD	wRbLife1[RB_HIST]={0,}, wRbLife2[RB_HIST]={0,};
+BYTE	bRbIdx1=0, bRbIdx2=0;
+WORD	wRbMagic=0;
 BYTE 	language_num=0,temp_language_jump=0;
 WORD 	eep_data_fg=0;
 
@@ -719,11 +708,7 @@ BYTE bRestoreMute = 0;
 BYTE 	bManualCleanFg = 0;  
 BYTE 	bSetIntroFg = 0;
 
-void Filter_Write_Exe(void);
-BYTE Filter_Write_1(ULONG v);
-BYTE Filter_Write_2(ULONG v);
-BYTE Fw_ErrCode(int8_t e);
-void Fw_Uid_Read(void);
+
 /* Private define ------------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
 
@@ -1804,12 +1789,10 @@ void GPIOE_IRQHandler_Input(void) {
 
 void mainloop(void)
 {
-#if FILTER_WRITER
-	backlight_en_fg = 1;        // 치구 모드 : 표시 항상 ON
-#endif
-	
+			
 	while(1)
 	{
+
 		if(m_n500ms_ok)  
 		{
 			m_n500ms_ok=0;
@@ -1914,20 +1897,6 @@ void mainloop(void)
 						
 
 			fcDisplay();
-			
-#if FILTER_WRITER
-			lError     = 0;                           // 치구 모드 : 에러로 키가 막히지 않게
-			serial_err = 0;
-			
-			// UID 확인 화면은 100ms 마다 다시 읽는다 (칩 바꿔 끼우며 비교)
-			if(bFwDispMode)
-			{
-				if(++bFwUidRdCnt >= 10)	{ bFwUidRdCnt = 0;	Fw_Uid_Read(); }
-			}
-			else	bFwUidRdCnt = 0;
-			
-			if(bFwState == 1)	Filter_Write_Exe();   // 표시 갱신 후 실행
-#endif
 			
 			Door_Check();
 
@@ -2127,7 +2096,7 @@ int main (void)
 	I2C0_ChannelConfig(I2C_DISP, I2C_SPEED, MASTER);  //disp
 	
 	//systick
-    SysTick_Config(SystemCoreClock/1000);  //   1msec interrupt  (Use Core Clock)
+  SysTick_Config(SystemCoreClock/1000);  //   1msec interrupt  (Use Core Clock)
 	
 	delay_1ms(250);	//231005-1  전원이 불안정하게 인가될때 설정데이터 리드와 필터  리드에 오류가 발생함을 방지,안정적 부팅 후 설정값리드
 	
@@ -2141,7 +2110,7 @@ int main (void)
 	
 	//260223
 	GD25D10_Init();
-	Aes128Init();
+	//Aes128Init();
 	
 	F2_life_reload();	delay_1ms(50);	
 	F1_life_reload();	delay_1ms(50);	
@@ -4735,14 +4704,156 @@ void FlashWrite(void)
 
 }*/
 
+// 데이터 플래시 1바이트 읽기 (비정렬 32비트 접근 금지 -> 바이트 단위로 읽는다)
+static BYTE Rb_Rd(WORD addr)
+{
+	return *(volatile uint8_t *)(START_ADDR + addr);
+}
+
+// 되쓰기 차단 기록을 Buffer 에 반영
+//  Buffer 는 부팅시 0 이고 플래시에서 되읽지 않으므로 FlashWrite 마다 채워야 한다
+void Rb_Sync_Buffer(void)
+{
+	BYTE i, p;
+
+	Buffer[ADD_RB_MAGIC]   = (BYTE)( wRbMagic       & 0xff);
+	Buffer[ADD_RB_MAGIC+1] = (BYTE)((wRbMagic >> 8) & 0xff);
+	Buffer[ADD_RB_IDX1]    = bRbIdx1;
+	Buffer[ADD_RB_IDX2]    = bRbIdx2;
+
+	for(i=0;i<RB_HIST;i++)
+	{
+		p = (BYTE)(ADD_RB_TBL1 + i*6);
+		Buffer[p+0] = (BYTE)( lRbId1[i]         & 0xff);
+		Buffer[p+1] = (BYTE)((lRbId1[i] >>  8)  & 0xff);
+		Buffer[p+2] = (BYTE)((lRbId1[i] >> 16)  & 0xff);
+		Buffer[p+3] = (BYTE)((lRbId1[i] >> 24)  & 0xff);
+		Buffer[p+4] = (BYTE)( wRbLife1[i]       & 0xff);
+		Buffer[p+5] = (BYTE)((wRbLife1[i] >> 8) & 0xff);
+
+		p = (BYTE)(ADD_RB_TBL2 + i*6);
+		Buffer[p+0] = (BYTE)( lRbId2[i]         & 0xff);
+		Buffer[p+1] = (BYTE)((lRbId2[i] >>  8)  & 0xff);
+		Buffer[p+2] = (BYTE)((lRbId2[i] >> 16)  & 0xff);
+		Buffer[p+3] = (BYTE)((lRbId2[i] >> 24)  & 0xff);
+		Buffer[p+4] = (BYTE)( wRbLife2[i]       & 0xff);
+		Buffer[p+5] = (BYTE)((wRbLife2[i] >> 8) & 0xff);
+	}
+}
+
+// 되쓰기 차단 기록 읽기 : Set_eep_init 맨 앞에서 부른다
+void Rb_Load(void)
+{
+	BYTE i;
+	WORD p;
+
+	wRbMagic = (WORD)Rb_Rd(ADD_RB_MAGIC) | ((WORD)Rb_Rd(ADD_RB_MAGIC+1) << 8);
+
+	if(wRbMagic != RB_MAGIC)
+	{
+		// 기록 없음 (최초 적용 / 기판 교체) -> 첫 칩 읽기에서 현재 상태로 등록된다
+		wRbMagic = 0;
+		bRbIdx1  = 0;	bRbIdx2 = 0;
+		for(i=0;i<RB_HIST;i++){
+			lRbId1[i] = 0;	wRbLife1[i] = 0;
+			lRbId2[i] = 0;	wRbLife2[i] = 0;
+		}
+		Rb_Sync_Buffer();
+		return;
+	}
+
+	bRbIdx1 = Rb_Rd(ADD_RB_IDX1);	if(bRbIdx1 >= RB_HIST)	bRbIdx1 = 0;
+	bRbIdx2 = Rb_Rd(ADD_RB_IDX2);	if(bRbIdx2 >= RB_HIST)	bRbIdx2 = 0;
+
+	for(i=0;i<RB_HIST;i++)
+	{
+		p = (WORD)(ADD_RB_TBL1 + i*6);
+		lRbId1[i]   = (ULONG)Rb_Rd(p) | ((ULONG)Rb_Rd(p+1)<<8)
+		            | ((ULONG)Rb_Rd(p+2)<<16) | ((ULONG)Rb_Rd(p+3)<<24);
+		wRbLife1[i] = (WORD)Rb_Rd(p+4) | ((WORD)Rb_Rd(p+5)<<8);
+		if(wRbLife1[i] > (WORD)(F1_MAX_LIFE/1000))	wRbLife1[i] = (WORD)(F1_MAX_LIFE/1000);
+
+		p = (WORD)(ADD_RB_TBL2 + i*6);
+		lRbId2[i]   = (ULONG)Rb_Rd(p) | ((ULONG)Rb_Rd(p+1)<<8)
+		            | ((ULONG)Rb_Rd(p+2)<<16) | ((ULONG)Rb_Rd(p+3)<<24);
+		wRbLife2[i] = (WORD)Rb_Rd(p+4) | ((WORD)Rb_Rd(p+5)<<8);
+		if(wRbLife2[i] > (WORD)(F2_MAX_LIFE/1000))	wRbLife2[i] = (WORD)(F2_MAX_LIFE/1000);
+	}
+
+	Rb_Sync_Buffer();
+}
+
+// 되쓰기(롤백) 판정
+//  ch : 1 = 필터1 , 2 = 필터2
+//  반환 : 0 = 정상 , 1 = 되쓰기 감지 -> 호출부에서 E03 / E04 처리
+//  다 쓴 칩의 20바이트를 덤프해 두고 되쓰면 잔량이 다시 늘어난다. 칩마다
+//  최소 잔량을 본체에 남겨 두고, 그보다 RB_MARGIN_L 이상 늘면 거부한다.
+BYTE Rb_Check(BYTE ch)
+{
+	ULONG *pId;
+	WORD  *pLife;
+	BYTE  *pIdx;
+	ULONG id;
+	WORD  nowL;
+	BYTE  i, hit;
+
+	if(ch == 1){
+		if(!bChipPresent1)			return 0;      // 미연결은 E01 로 따로 처리
+		if(last_load_err1 != 0)		return 0;      // 복호화 실패도 따로 처리
+		id    = chip_id1;
+		nowL  = (WORD)(read_f1_ex_life / 1000);
+		pId   = lRbId1;		pLife = wRbLife1;	pIdx = &bRbIdx1;
+	}
+	else{
+		if(!bChipPresent2)			return 0;
+		if(last_load_err2 != 0)		return 0;
+		id    = chip_id2;
+		nowL  = (WORD)(read_f2_ex_life / 1000);
+		pId   = lRbId2;		pLife = wRbLife2;	pIdx = &bRbIdx2;
+	}
+
+	if(wRbMagic != RB_MAGIC)	wRbMagic = RB_MAGIC;   // 최초 사용 시작
+
+	// 기억하고 있는 칩인지 찾는다 (chip_id 0 은 빈 칸으로 본다)
+	hit = RB_HIST;
+	for(i=0;i<RB_HIST;i++){
+		if( (pId[i] != 0) && (pId[i] == id) ){	hit = i;	break;	}
+	}
+
+	if(hit >= RB_HIST)
+	{
+		// 처음 보는 칩 -> 가장 오래된 칸에 등록
+		pId[*pIdx]   = id;
+		pLife[*pIdx] = nowL;
+		*pIdx = (BYTE)((*pIdx + 1) % RB_HIST);
+		eep_data_fg = 1;
+		return 0;
+	}
+
+	// 잔량이 기록보다 늘었다 -> 되쓰기
+	if( nowL > (WORD)(pLife[hit] + RB_MARGIN_L) )	return 1;
+
+	// 사용이 진행되었으면 최소 잔량 갱신 (플래시 수명 위해 RB_STEP_L 단위)
+	if( (pLife[hit] >= RB_STEP_L) && (nowL <= (WORD)(pLife[hit] - RB_STEP_L)) )
+	{
+		pLife[hit] = nowL;
+		eep_data_fg = 1;
+	}
+
+	return 0;
+}
+
 void FlashWrite(void)
 {
 	uint8_t result;
 
+	Rb_Sync_Buffer();          // 되쓰기 차단 기록을 함께 보존
+
 	eeprom_save_fg = 1;
 
-	/* 사용 데이터는 Buffer[0]~Buffer[ADD_INIT+3] = 36바이트.
-	   512B 섹터 1개 소거 + 256B 페이지 1개 프로그램으로 충분하다. */
+	// 사용 데이터는 Buffer[0]~Buffer[87] = 88바이트
+	//  0~31  설정값 , 32~35 DATA_INIT 매직 , 36~87 되쓰기 차단 기록
+	//  512B 섹터 1개 소거 + 256B 페이지 1개 프로그램으로 충분하다
 	result = HAL_DFMC_EraseSector (DATA_OPTION_NOT_USE, START_ADDR);
 	if (result == 0)   /* HAL 성공 코드에 맞게 비교식 조정 */
 		result = HAL_DFMC_WordProgram(DATA_OPTION_NOT_USE, START_ADDR, 256, Buffer);
@@ -4751,6 +4862,7 @@ void FlashWrite(void)
 }
 void	Set_eep_init(void)
 {
+	Rb_Load();          // 되쓰기 차단 기록을 먼저 읽는다 (아래 FlashWrite 보다 앞)
 
 	//[3][2][1][0]
 	eep_data = *((volatile uint32_t *)(START_ADDR + ADD_INIT));  //ADD_INIT
@@ -5978,47 +6090,6 @@ void key_input(void)
 **************************************************************************************************/
 void Key_exe(void)
 {
-#if FILTER_WRITER
-	switch(key_new)
-	{
-		case TCH_HOT :
-		case TCH_HOT_LONG :		bFwSel = 0;	break;   // 3000 L
-		case TCH_PURE :			bFwSel = 1;	break;   //  101 L
-		case TCH_COOL :			bFwSel = 2;	break;   //   71 L
-		case TCH_ALKALI :		bFwSel = 3;	break;   //   31 L
-		case TCH_COOLALKALI :	bFwSel = 4;	break;   //    6 L
-		
-		case TCH_CLEAN :
-		case TCH_CLEAN_LONG :
-			// 굽기 모드 순환 : 정품 -> 키위조 -> ID위조
-			if(++bFwKeyMode > 2)	bFwKeyMode = 0;
-			break;
-		
-		case TCH_ML :
-		case TCH_ML_MAX :
-			// UID 확인 화면 토글
-			bFwDispMode ^= 1;
-			if(bFwDispMode)	Fw_Uid_Read();
-			break;
-		
-		case TCH_START :
-			if(bFwState != 1)	bFwState = 1;        // 쓰기 요청만 세움
-			key_new = 0x00;
-			return;
-			
-		default :
-			key_new = 0x00;
-			return;
-	}
-	
-	bFwState = 0;                                    // 선택 변경 -> 대기(빨강)
-	bFwErr1  = 0;	bFwErr2 = 0;
-	Voice_output(SND_SELECT);
-	
-	key_new = 0x00;
-	return;
-#endif
-
   	switch(key_new)
   	{
   	  	case TCH_MODE : 	// 모드
@@ -7202,104 +7273,6 @@ void Warning_voice(void)
         bRestoreMute = 0;
     }*/
 }
-// UID 확인용 : 필터 1,2 의 UID 16바이트 합을 3자리로 만든다
-//  0x4B 미지원이면 전부 0xFF 로 읽혀 16 x 255 = 4080 -> 080 이 나온다
-//  반단선이면 전부 0x00 -> 000
-//  정상이면 칩마다 다른 값이 나온다 (칩을 바꿔 끼워 비교할 것)
-void Fw_Uid_Read(void)
-{
-	uint8_t uid[16];
-	uint8_t i;
-	WORD    sum;
-	
-	GD25D10_Read16Bytes_UID(0, uid);
-	sum = 0;
-	for(i=0;i<16;i++)	sum += uid[i];
-	wFwUid1 = sum % 1000;
-	
-	GD25D10_2_Read16Bytes_UID(0, uid);
-	sum = 0;
-	for(i=0;i<16;i++)	sum += uid[i];
-	wFwUid2 = sum % 1000;
-}
-
-// last_load_err -> 화면 표시용 2자리 코드로 변환
-BYTE Fw_ErrCode(int8_t e)
-{
-	if(e ==   0)	return  0;
-	if(e == -12)	return 12;      // 칩 미연결 / 하네스 불량
-	if(e == -11)	return 11;      // 빈 칩 : 기록이 안 됨
-	if(e ==  -1)	return  1;      // 키 불일치
-	if(e ==  -3)	return  3;      // CRC 손상
-	if(e ==  -4)	return  4;      // 값 범위 초과
-	if(e ==  -5)	return  5;      // chip_id 불일치
-	
-	return 8;                       // 미정의
-}
-
-// 필터 1 쓰기 : 0 = 성공 , 그외 = 원인 코드
-BYTE Filter_Write_1(ULONG v)
-{
-	LoadFilter1_Init();                      // 새 칩 UID 로 AES 키 재유도 + chip_id1
-	
-	if(!bChipPresent1)	return 12;           // JEDEC ID 로 미연결 확인
-	
-	ReadCnt( ADDR_F1 , v);                   // 암호문 생성 (SaveCipher1)
-	GD25D10_EraseSector4K(0);
-	delay_1ms(10);
-	SaveFilter( ADDR_F1_ID , v);             // chip_id + 암호문 20바이트 기록
-	delay_1ms(10);
-	
-	lFwRead1 = LoadFilter(ADDR_F1);          // 검증 읽기
-	
-	if(last_load_err1 != 0)	return Fw_ErrCode(last_load_err1);
-	if(lFwRead1 != v)		return 9;        // 값 불일치
-	
-	return 0;
-}
-
-// 필터 2 쓰기 : 0 = 성공 , 그외 = 원인 코드
-BYTE Filter_Write_2(ULONG v)
-{
-	LoadFilter2_Init();
-	
-	if(!bChipPresent2)	return 12;
-	
-	ReadCnt_2( ADDR_F2 , v);
-	GD25D10_2_EraseSector4K(0);
-	delay_1ms(10);
-	SaveFilter_2( ADDR_F2_ID , v);
-	delay_1ms(10);
-	
-	lFwRead2 = LoadFilter_2(ADDR_F2);
-	
-	if(last_load_err2 != 0)	return Fw_ErrCode(last_load_err2);
-	if(lFwRead2 != v)		return 9;
-	
-	return 0;
-}
-
-// 필터 1,2 에 선택값을 쓰고 읽어서 검증
-void Filter_Write_Exe(void)
-{
-	lFwValue = filter_wr_tbl[bFwSel];
-	
-	lFwRead1 = 0;	lFwRead2 = 0;
-	
-	bFwErr1 = Filter_Write_1(lFwValue);      // 한쪽이 실패해도
-	bFwErr2 = Filter_Write_2(lFwValue);      // 다른쪽은 계속 진행
-	
-	if( (bFwErr1 == 0) && (bFwErr2 == 0) )
-	{
-		bFwState = 2;                        // 완료
-		Voice_output(SND_CONFIRM);           // 띠링
-	}
-	else
-	{
-		bFwState = 3;                        // 실패
-		Voice_output(SND_FAIL);
-	}
-}
 /**************************************************************************************************
 		필터 IC에 필터값 저장
 **************************************************************************************************/
@@ -7327,8 +7300,9 @@ void Filter_life_save(void)
 			if(!bChipPresent1){                  // 칩 미연결 : 쓰기 중단
 				f1_save_cnt = 0;
 				f1_life_save_fg = 0;
-				return;
+				//return;
 			}
+			
 			
 			save_f1_life = filter1_life;
 			ReadCnt( ADDR_F1 ,save_f1_life);
@@ -7391,7 +7365,7 @@ void Filter_life_save(void)
 			if(!bChipPresent2){                  // 칩 미연결 : 쓰기 중단
 				f2_save_cnt = 0;
 				f2_life_save_fg = 0;
-				return;
+				//return;
 			}
 			
 			save_f2_life = filter2_life;
@@ -7498,13 +7472,21 @@ void	Filter_life_check(void)         // 점검 기능
 				filter_error_fg |= 0x01;    // -> E03
 			}
 		}
+		else if( Rb_Check(1) )
+		{
+			// 되쓰기 감지
+			if(++f1_read_error_cnt>ERROR_CNT)
+			{
+				f1_read_error_cnt = 0;
+				filter_error_fg |= 0x01;    // -> E03
+			}
+		}
 		else if(!read_f1_ex_life )
 		{
-			// 칩 미연결(-12) / 빈 칩(-11) / CRC(-3) -> 읽기 에러
 			if(++f1_read_error_cnt>ERROR_CNT)	//210220 추가
 			{
 				f1_read_error_cnt = 0;
-	  		    filter_error_fg |= 0x04;    // -> E01
+	  		    filter_error_fg |= 0x04;
 			
 	  	   }
 		}
@@ -7560,13 +7542,21 @@ void	Filter_life_check(void)         // 점검 기능
 				filter_error_fg |= 0x02;    // -> E04
 			}
 		}
+		else if( Rb_Check(2) )
+		{
+			// 되쓰기 감지
+			if(++f2_read_error_cnt>ERROR_CNT)
+			{
+				f2_read_error_cnt = 0;
+				filter_error_fg |= 0x02;    // -> E04
+			}
+		}
 		else if(!read_f2_ex_life )  
 		{
-			// 칩 미연결(-12) / 빈 칩(-11) / CRC(-3) -> 읽기 에러
 			if(++f2_read_error_cnt>ERROR_CNT)	//210220 추가
 			{
 				f2_read_error_cnt = 0;
-				filter_error_fg |= 0x08;    // -> E02
+				filter_error_fg |= 0x08;
 			
 			}
 		}
@@ -7659,18 +7649,19 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	LoadFilter1_Init();
 	delay_1ms(1);
 
-  	read_f1_ex_life = LoadFilter(ADDR_F1); //  Eeprom_ex_load(1);				//080507_4 필터교체시 초기값 읽기
-	
-	// 미연결 / 키 불일치 / chip_id 불일치는 접촉 불량일 수도 있으므로 1회 재시도
+  read_f1_ex_life = LoadFilter(ADDR_F1); //  Eeprom_ex_load(1);				//080507_4 필터교체시 초기값 읽기
+  
+  // 키 불일치 / chip_id 불일치는 UID 읽기 실패일 수도 있으므로 1회 재시도
 	if( (last_load_err1 == -12) || (last_load_err1 == -1) || (last_load_err1 == -5) )
 	{
 		LoadFilter1_Init();
-		delay_1ms(5);
+		delay_1ms(2);
 		read_f1_ex_life = LoadFilter(ADDR_F1);
 	}
-	
-  	filter1_life = read_f1_ex_life;					//080507_4 필터교체시 초기값 읽기
+  
+  filter1_life = read_f1_ex_life;					//080507_4 필터교체시 초기값 읽기
 	wF1_life_old = (WORD)filter1_life/1000; //260223
+
 
 	if(last_load_err1 == -12)
 	{
@@ -7682,7 +7673,15 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	}
 	else if( (last_load_err1 == -1) || (last_load_err1 == -5) )
 	{
-		// 키 불일치 또는 chip_id 불일치 -> 위조
+		// 키 불일치 또는 chip_id 불일치 : 위조 / 다른 키로 쓴 칩
+		if(++byF1_life_err_cnt>ERROR_CNT) {
+			byF1_life_err_cnt = 0;
+			filter_error_fg |= 0x01;        // -> E03
+		}
+	}
+	else if( Rb_Check(1) )
+	{
+		// 되쓰기 감지 : 다 쓴 칩의 잔량이 다시 늘었다
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
 			filter_error_fg |= 0x01;        // -> E03
@@ -7690,10 +7689,11 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	}
 	else if(!filter1_life)
 	{
-		// 빈 칩(-11) / CRC 손상(-3) 등 -> 읽기 오류
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
-  			filter_error_fg |= 0x04;        // -> E01
+  		filter_error_fg |= 0x04;
+  		
+				
   		}
   	}
   	else if(filter1_life>F1_MAX_LIFE)
@@ -7736,9 +7736,9 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	
 	LoadFilter2_Init(); 
 	delay_1ms(1);
-  	read_f2_ex_life =LoadFilter_2(ADDR_F2); //  Eeprom_ex_load(2);				//080507_4 필터교체시 초기값 읽기
-	
-	// 미연결 / 키 불일치 / chip_id 불일치는 접촉 불량일 수도 있으므로 1회 재시도
+ 	read_f2_ex_life =LoadFilter_2(ADDR_F2); //  Eeprom_ex_load(2);				//080507_4 필터교체시 초기값 읽기
+  
+  // 키 불일치 / chip_id 불일치는 UID 읽기 실패일 수도 있으므로 1회 재시도
 	if( (last_load_err2 == -12) || (last_load_err2 == -1) || (last_load_err2 == -5) )
 	{
 		LoadFilter2_Init();
@@ -7746,7 +7746,8 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		read_f2_ex_life = LoadFilter_2(ADDR_F2);
 	}
 	
-  	filter2_life = read_f2_ex_life;					//080507_4 필터교체시 초기값 읽기
+	
+  filter2_life = read_f2_ex_life;					//080507_4 필터교체시 초기값 읽기
 	wF2_life_old = (WORD)filter2_life/1000; //260223
 	
 	if(last_load_err2 == -12)
@@ -7759,7 +7760,15 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	}
 	else if( (last_load_err2 == -1) || (last_load_err2 == -5) )
 	{
-		// 키 불일치 또는 chip_id 불일치 -> 위조
+		// 키 불일치 또는 chip_id 불일치 : 위조 / 다른 키로 쓴 칩
+		if(++byF2_life_err_cnt>ERROR_CNT) {
+			byF2_life_err_cnt = 0;
+			filter_error_fg |= 0x02;        // -> E04
+		}
+	}
+	else if( Rb_Check(2) )
+	{
+		// 되쓰기 감지 : 다 쓴 칩의 잔량이 다시 늘었다
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
 			filter_error_fg |= 0x02;        // -> E04
@@ -7767,10 +7776,11 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	}
 	else if(!filter2_life)  
 	{
-		// 빈 칩(-11) / CRC 손상(-3) 등 -> 읽기 오류
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
-			filter_error_fg |= 0x08;        // -> E02
+			filter_error_fg |= 0x08;
+			
+			
 		}
 	}
 	else if(filter2_life>F2_MAX_LIFE)
