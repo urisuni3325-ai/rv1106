@@ -7853,6 +7853,8 @@ void	Filter_life_check(void)         // 점검 기능
   	  	filter_change_fg &= 0xdd;
   	} 
   	  	
+  	filter_error = 0;
+  	
   	if(filter_error_fg & 0xcc) //if(filter_error_fg & 0xcf)
   	{
   	  	filter_error = 1;
@@ -7861,10 +7863,25 @@ void	Filter_life_check(void)         // 점검 기능
   	}
   	else
   	{
-  	  	filter_error = 0;
 		lError &= (~ERR_FILTER_RD1);
 		lError &= (~ERR_FILTER_RD2);
   	}
+  	
+  	// 위조 / 암호 오류 / 되쓰기는 0x01 , 0x02 로 표시된다.
+  	// Filter_life_save() 는 저장할 게 있을 때만 불리는데 위조 칩은 라이프가
+  	// 0 이라 저장이 걸리지 않아 한 번도 안 불린다. 여기서도 lError 로 옮긴다.
+  	if(filter_error_fg & 0x03)
+  	{
+  	  	filter_error = 1;
+		if(filter_error_fg&0x01)	lError |= ERR_FILTER_WR1;
+		if(filter_error_fg&0x02)	lError |= ERR_FILTER_WR2;
+  	}
+  	else
+  	{
+		lError &= (~ERR_FILTER_WR1);
+		lError &= (~ERR_FILTER_WR2);
+  	}
+  	
   	life_check_fg=0;
 }
 /**************************************************************************************************
