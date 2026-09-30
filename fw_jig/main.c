@@ -4887,6 +4887,15 @@ BYTE Rb_Check(BYTE ch)
 #endif
 }
 
+// 필터 에러 비트를 하나만 남긴다
+//  원인이 겹쳐 E01~E04 가 동시에 뜨는 것을 막는다.
+//  성공 경로(&= 0xba / 0x75) 는 그대로 두고, 원인이 확정될 때마다 갱신한다.
+void Filter_Err_Set(BYTE mask, BYTE bit)
+{
+	filter_error_fg &= (BYTE)(~mask);
+	filter_error_fg |= bit;
+}
+
 // 되쓰기 차단 기록 지우기
 //  ch : 1 = 필터1 만 , 2 = 필터2 만 , 0 = 양쪽 전체 (매직까지 무효화)
 //  치구에서 칩을 다시 구운 뒤 부른다. 같은 칩을 재기록하면 chip_id 는 같고
@@ -7706,13 +7715,22 @@ void	Filter_life_check(void)         // 점검 기능
 		read_f1_ex_life =  LoadFilter(ADDR_F1); // Eeprom_ex_load(1);
 		//f1_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
 
-		if( (last_load_err1 == -1) || (last_load_err1 == -5) )
+		if( (last_load_err1 == -1) && IsFilterSwapped(1) )
+		{
+			// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
+			if(++f1_read_error_cnt>ERROR_CNT)
+			{
+				f1_read_error_cnt = 0;
+				Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
+			}
+		}
+		else if( (last_load_err1 == -1) || (last_load_err1 == -5) )
 		{
 			// 키 불일치 / chip_id 불일치 : 위조 · 다른 키로 쓴 칩
 			if(++f1_read_error_cnt>ERROR_CNT)
 			{
 				f1_read_error_cnt = 0;
-				filter_error_fg |= 0x01;    // -> E03
+				Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
 			}
 		}
 		else if( Rb_Check(1) )
@@ -7721,7 +7739,7 @@ void	Filter_life_check(void)         // 점검 기능
 			if(++f1_read_error_cnt>ERROR_CNT)
 			{
 				f1_read_error_cnt = 0;
-				filter_error_fg |= 0x01;    // -> E03
+				Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
 			}
 		}
 		else if(!read_f1_ex_life )
@@ -7729,8 +7747,7 @@ void	Filter_life_check(void)         // 점검 기능
 			if(++f1_read_error_cnt>ERROR_CNT)	//210220 추가
 			{
 				f1_read_error_cnt = 0;
-	  		    filter_error_fg |= 0x04;
-			
+				Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
 	  	   }
 		}
 		else if(read_f1_ex_life>F1_MAX_LIFE)
@@ -7738,8 +7755,7 @@ void	Filter_life_check(void)         // 점검 기능
 				if(++f1_read_error_cnt>ERROR_CNT)
 				{
 					f1_read_error_cnt = 0;
-					filter_error_fg |= 0x40;
-				
+					Filter_Err_Set(F1_ERR_MASK, 0x40);
 				}
 		}
 		else
@@ -7776,13 +7792,22 @@ void	Filter_life_check(void)         // 점검 기능
 		
 		read_f2_ex_life =  LoadFilter_2(ADDR_F2); // Eeprom_ex_load(2);
 		//f2_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
-		if( (last_load_err2 == -1) || (last_load_err2 == -5) )
+		if( (last_load_err2 == -1) && IsFilterSwapped(2) )
+		{
+			// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
+			if(++f2_read_error_cnt>ERROR_CNT)
+			{
+				f2_read_error_cnt = 0;
+				Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
+			}
+		}
+		else if( (last_load_err2 == -1) || (last_load_err2 == -5) )
 		{
 			// 키 불일치 / chip_id 불일치 : 위조 · 다른 키로 쓴 칩
 			if(++f2_read_error_cnt>ERROR_CNT)
 			{
 				f2_read_error_cnt = 0;
-				filter_error_fg |= 0x02;    // -> E04
+				Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
 			}
 		}
 		else if( Rb_Check(2) )
@@ -7791,7 +7816,7 @@ void	Filter_life_check(void)         // 점검 기능
 			if(++f2_read_error_cnt>ERROR_CNT)
 			{
 				f2_read_error_cnt = 0;
-				filter_error_fg |= 0x02;    // -> E04
+				Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
 			}
 		}
 		else if(!read_f2_ex_life )  
@@ -7799,8 +7824,7 @@ void	Filter_life_check(void)         // 점검 기능
 			if(++f2_read_error_cnt>ERROR_CNT)	//210220 추가
 			{
 				f2_read_error_cnt = 0;
-				filter_error_fg |= 0x08;
-			
+				Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
 			}
 		}
 		else if(read_f2_ex_life>F2_MAX_LIFE)
@@ -7808,8 +7832,7 @@ void	Filter_life_check(void)         // 점검 기능
 			if(++f2_read_error_cnt>ERROR_CNT)
 			{
 				f2_read_error_cnt = 0;
-				filter_error_fg |= 0x80;
-			
+				Filter_Err_Set(F2_ERR_MASK, 0x80);
 			}
 		}
 		else
@@ -7928,7 +7951,15 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		// 칩 미연결 / 하네스 불량 -> 읽기 오류
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
-			filter_error_fg |= 0x04;        // -> E01
+			Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
+		}
+	}
+	else if( (last_load_err1 == -1) && IsFilterSwapped(1) )
+	{
+		// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
+		if(++byF1_life_err_cnt>ERROR_CNT) {
+			byF1_life_err_cnt = 0;
+			Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
 		}
 	}
 	else if( (last_load_err1 == -1) || (last_load_err1 == -5) )
@@ -7936,7 +7967,7 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		// 키 불일치 또는 chip_id 불일치 : 위조 / 다른 키로 쓴 칩
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
-			filter_error_fg |= 0x01;        // -> E03
+			Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
 		}
 	}
 	else if( Rb_Check(1) )
@@ -7944,23 +7975,21 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		// 되쓰기 감지 : 다 쓴 칩의 잔량이 다시 늘었다
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
-			filter_error_fg |= 0x01;        // -> E03
+			Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
 		}
 	}
 	else if(!filter1_life)
 	{
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
-  		filter_error_fg |= 0x04;
-  		
-				
+			Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
   		}
   	}
   	else if(filter1_life>F1_MAX_LIFE)
   	{
 		if(++byF1_life_err_cnt>ERROR_CNT) {
 			byF1_life_err_cnt = 0;
-			filter_error_fg |= 0x40;
+			Filter_Err_Set(F1_ERR_MASK, 0x40);
 		}
   	}
 	else	//231005 에러해제
@@ -8015,7 +8044,15 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		// 칩 미연결 / 하네스 불량 -> 읽기 오류
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
-			filter_error_fg |= 0x08;        // -> E02
+			Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
+		}
+	}
+	else if( (last_load_err2 == -1) && IsFilterSwapped(2) )
+	{
+		// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
+		if(++byF2_life_err_cnt>ERROR_CNT) {
+			byF2_life_err_cnt = 0;
+			Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
 		}
 	}
 	else if( (last_load_err2 == -1) || (last_load_err2 == -5) )
@@ -8023,7 +8060,7 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		// 키 불일치 또는 chip_id 불일치 : 위조 / 다른 키로 쓴 칩
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
-			filter_error_fg |= 0x02;        // -> E04
+			Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
 		}
 	}
 	else if( Rb_Check(2) )
@@ -8031,23 +8068,21 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 		// 되쓰기 감지 : 다 쓴 칩의 잔량이 다시 늘었다
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
-			filter_error_fg |= 0x02;        // -> E04
+			Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
 		}
 	}
 	else if(!filter2_life)  
 	{
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
-			filter_error_fg |= 0x08;
-			
-			
+			Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
 		}
 	}
 	else if(filter2_life>F2_MAX_LIFE)
 	{
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
-		  	filter_error_fg |= 0x80;
+			Filter_Err_Set(F2_ERR_MASK, 0x80);
 		}
 	}
 	else	//210220 에러해제

@@ -660,6 +660,13 @@ void Rb_Load(void);
 void Rb_Sync_Buffer(void);
 BYTE Rb_Check(BYTE ch);
 void Rb_Clear(BYTE ch);
+void Filter_Err_Set(BYTE mask, BYTE bit);
+uint8_t IsFilterSwapped(uint8_t channel);
+
+/* filter_error_fg 의 필터별 에러 비트 묶음
+   원인이 여러 개 겹쳐 E01~E04 가 동시에 뜨지 않도록 한 번에 하나만 남긴다 */
+#define F1_ERR_MASK   0x45   /* 0x01 위조 , 0x04 읽기 , 0x40 범위 초과 */
+#define F2_ERR_MASK   0x8A   /* 0x02 위조 , 0x08 읽기 , 0x80 범위 초과 */
 
 /* 필터 칩 쓰기 치구 (FILTER_WRITER 1 에서만 동작) */
 void Filter_Write_Exe(void);

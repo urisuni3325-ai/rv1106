@@ -386,6 +386,44 @@ int PrepareValue(AES128_ctx* ctx, uint32_t addr, uint32_t value, uint8_t channel
   return 0;
 }
 
+// 필터 위치가 서로 바뀌어 끼워졌는지 확인 : 상대 채널 마스터 키로 복호화가 되면 1
+//  정품 칩을 반대 소켓에 끼우면 키만 달라 복호화가 실패해 위조(-1)와 구분되지 않는다.
+//  같은 소켓의 UID 로 상대 채널 키를 유도해 한 번 더 복호화해 본다.
+//  chip_id 는 그 칩의 UID 에서 나오므로 위치만 바뀐 정품이면 전부 통과한다.
+//  위조 칩(다른 마스터 키)이나 복제 칩(chip_id 불일치)은 여기서도 실패한다.
+uint8_t IsFilterSwapped(uint8_t channel)
+{
+	uint8_t uid[16], derived[16], cipher[16], plain[16];
+	uint32_t v, c, id, max_v;
+	AES128_ctx temp_ctx, alt_ctx;
+	uint8_t present = (channel == 1) ? bChipPresent1 : bChipPresent2;
+
+	if(!present)	return 0;
+
+	// 같은 소켓의 UID 로 상대 채널 키를 유도
+	if(channel == 1)	GD25D10_Read16Bytes_UID(0, uid);
+	else				GD25D10_2_Read16Bytes_UID(0, uid);
+
+	AES128_init(&temp_ctx, (channel == 1) ? master_key2 : master_key1);
+	AES128_ECB_encrypt(&temp_ctx, uid, derived);
+	AES128_init(&alt_ctx, derived);
+
+	if(channel == 1)	GD25D10_Read16Bytes(ADDR_F1, cipher);
+	else				GD25D10_2_Read16Bytes(ADDR_F2, cipher);
+
+	if(is_all_ff(cipher))	return 0;
+
+	AES128_ECB_decrypt(&alt_ctx, cipher, plain);
+
+	id    = (uint32_t)uid[0] | ((uint32_t)uid[1] << 8)
+	      | ((uint32_t)uid[2] << 16) | ((uint32_t)uid[3] << 24);
+	max_v = (channel == 1) ? F1_MAX_LIFE : F2_MAX_LIFE;
+
+	if(unpack_value_counter(plain, &v, &c, max_v, id) == 0)	return 1;   // 위치 바뀜
+
+	return 0;
+}
+
 void LoadFilter_Init(void)
 {
 	/*uint8_t r_data1[20], r_data2[20];
