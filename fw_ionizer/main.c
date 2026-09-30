@@ -3283,12 +3283,19 @@ void fcError(void)
 
 	
 	//  0.7 liter 이하 이거나 3.5리터 이상이면 점검 표시 및 경고 음성 출력 
-	if((flow_liter<LOW_LIMIT_LITER || flow_liter>HIGH_LIMIT_LITER) && (m_state&0x02) )   // 문 열림
+	// 플러싱의 펌프 구간(2 온수라인 , 4 히터테스트 , 5 잔열배수)은 마이크로 펌프로
+	// 진행해 입수 유량이 낮고, 빈 탱크를 채우는 동안 프라이밍으로 0 이 되기도 한다.
+	// 정상 동작이므로 유량 에러 판정에서 제외한다.
+	if( ((flow_liter<LOW_LIMIT_LITER) || (flow_liter>HIGH_LIMIT_LITER)) && (m_state&0x02)
+	    && !( ((s_mode&0x7ff) == FLUSHING)
+	          && ((bFlushingStep == 2) || (bFlushingStep == 4) || (bFlushingStep == 5)) ) )
 	{
-		if((s_mode&0x7ff) == CLEAN	)	ERROR_FLOW_TICK = 16; //세정시 3초후 +5초 = 8ㅊㅎ  동작함
-		else ERROR_FLOW_TICK = 10; //5sec
+		// Ad_conversion 은 100ms 주기이므로 1틱 = 100ms
+		if((s_mode&0x7ff) == CLEAN)				ERROR_FLOW_TICK = 80;   // 세정 8초
+		else if((s_mode&0x7ff) == FLUSHING)		ERROR_FLOW_TICK = 100;  // 플러싱 10초 (단계 전환 여유)
+		else									ERROR_FLOW_TICK = 50;   // 5초
 		
-	  	if(++flow_error_cnt >= ERROR_FLOW_TICK)					// 50-5sec_delay
+	  	if(++flow_error_cnt >= ERROR_FLOW_TICK)
 	  	{
 	  		flow_error_cnt = 0;
 	  		if(!flow_error) voice_out_cnt = 50;	//080109
