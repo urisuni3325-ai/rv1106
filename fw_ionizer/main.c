@@ -1955,6 +1955,17 @@ void mainloop(void)
 			serial_err = 0;
 			Valve_Test_Apply();
 			if(bVtSnsCnt)	bVtSnsCnt--;              // 유량센서 번호 표시 시간
+			
+			backlight_off_cnt = 0;                    // 화면이 꺼지지 않게
+			backlight_en_fg   = 1;
+			
+			if( (s_mode & 0x7ff) == FLUSHING )        // 플러싱 상태로 들어와 있으면 빠져나온다
+			{
+				s_mode        = PURE;
+				m_state       = 0;
+				bFlushingStep = 0;
+				wFlushingCnt  = 0;
+			}
 #elif HOT_TEST_MODE
 			lError     = 0;                           // 온수 시험 모드 : 에러 판정 무시
 			serial_err = 0;
@@ -6280,6 +6291,17 @@ void key_input(void)
 
 	if((key_value) &&( old_key_value==0) )
 	{
+#if VALVE_TEST_MODE
+		// 수동 시험 모드 : 키를 막는 조건을 전부 건너뛴다
+		//  1) 플러싱 모드이면 모든 키가 죽는다
+		//  2) 백라이트가 꺼져 있으면 출수키 첫 번째 누름이 삼켜진다 (key_new 가 안 생김)
+		//  3) 출수중이면 다른 키가 전부 TCH_START 로 바뀐다
+		backlight_off_cnt = 0;
+		backlight_en_fg   = 1;
+		key_new           = key_value;
+		old_key_value     = key_value;
+		return;
+#endif
 		if( (s_mode&0x7ff) !=FLUSHING){
 			
 			if( (backlight_en_fg==0 ) && (key_value == TCH_START)){// && ( first_clean_en_fg==0)){ //대기모드->동작버튼 누르면
