@@ -188,6 +188,8 @@ extern long lPump_rpm;
 extern ULONG flow_hot_liter;
 extern int32_t wCoolTemper;
 extern ULONG lFlowSum_Out;
+extern ULONG lFlowSum_In;
+extern ULONG lFlowSum_Hot;
 extern uint32_t lError;
 
 extern BYTE 	backlight_en_fg ;
@@ -1501,6 +1503,22 @@ void fcDisplay(void)
 	else{
 		Display_Flushing();
 	}
+
+#if FLOW_DEBUG_DISP
+	// 유량센서 확인용 : 출수 중 좌 = 입수 누적(PE5) , 우 = 온수 누적(PE7)
+	//  좌만 올라가고 우가 000 이면 온수 유량센서 신호가 없는 것.
+	//  플러싱은 단계 표시를 그대로 두므로 제외한다.
+	if( (m_state & 0x02) && ((s_mode&0x7ff) != FLUSHING) )
+	{
+		DISP_SetDigitNum(0, (BYTE)(lFlowSum_In/100%10), 0);
+		DISP_SetDigitNum(1, (BYTE)(lFlowSum_In/10%10),  0);
+		DISP_SetDigitNum(2, (BYTE)(lFlowSum_In%10),     0);
+		
+		DISP_SetDigitNum(3, (BYTE)(lFlowSum_Hot/100%10), 0);
+		DISP_SetDigitNum(4, (BYTE)(lFlowSum_Hot/10%10),  0);
+		DISP_SetDigitNum(5, (BYTE)(lFlowSum_Hot%10),     0);
+	}
+#endif
 
     HT16D33_Update();
 

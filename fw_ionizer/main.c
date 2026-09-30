@@ -3082,7 +3082,11 @@ void Output_mL_Control(void)
 			}
 			else if(bFlushingStep==2){            // 온수 라인 물채우기 (펌프)
 				flow = FLUSH_ML_HOT;              // 300ml
-				lFlowSum = lFlowSum_Hot;          // 온수 유량센서
+				#if FLUSH_PUMP_BY_HOT
+				lFlowSum = lFlowSum_Hot;          // 온수 유량센서 (PE7)
+#else
+				lFlowSum = lFlowSum_In;           // 임시 : 입수 유량센서 (PE5)
+#endif
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
@@ -3108,7 +3112,11 @@ void Output_mL_Control(void)
 			}
 			else if(bFlushingStep==4){            // 온수관로 배수 + 히터 60도 테스트 (펌프)
 				flow = FLUSH_ML_HOT_TEST;         // 250ml
-				lFlowSum = lFlowSum_Hot;          // 온수 유량센서
+				#if FLUSH_PUMP_BY_HOT
+				lFlowSum = lFlowSum_Hot;          // 온수 유량센서 (PE7)
+#else
+				lFlowSum = lFlowSum_In;           // 임시 : 입수 유량센서 (PE5)
+#endif
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
@@ -3121,7 +3129,11 @@ void Output_mL_Control(void)
 			}
 			else if(bFlushingStep==5){            // 온수관로 잔열 배수 (히터 OFF, 펌프)
 				flow = FLUSH_ML_HOT_COOL;         // 300ml
-				lFlowSum = lFlowSum_Hot;          // 온수 유량센서
+				#if FLUSH_PUMP_BY_HOT
+				lFlowSum = lFlowSum_Hot;          // 온수 유량센서 (PE7)
+#else
+				lFlowSum = lFlowSum_In;           // 임시 : 입수 유량센서 (PE5)
+#endif
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;

@@ -39,6 +39,18 @@
    0 : 표시 없음 (양산) */
 #define FLUSH_STEP_DISP     1
 
+/* 유량센서 확인용 표시
+   1 : 출수 중 좌측 = 입수 누적(PE5) , 우측 = 온수 누적(PE7)  (mL 하위 3자리)
+       좌측만 올라가고 우측이 000 이면 온수 유량센서 신호가 없는 것.
+       플러싱 중에는 단계 표시를 그대로 두므로 겹치지 않는다.
+   0 : 표시 없음 (양산) */
+#define FLOW_DEBUG_DISP     1
+
+/* 플러싱 펌프 구간(2 · 4 · 5) 진행량을 세는 센서
+   1 : 온수 유량센서(PE7) - 펌프가 밀어낸 양이므로 원칙적으로 맞다
+   0 : 입수 유량센서(PE5) - 온수 센서가 고장일 때 임시로 진행시킬 때만 */
+#define FLUSH_PUMP_BY_HOT   1
+
 #if FILTER_PORT_SWAP
 #define F1_ReadID           GD25D10_2_ReadID
 #define F1_ReadUID          GD25D10_2_Read16Bytes_UID
