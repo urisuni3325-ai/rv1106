@@ -4887,6 +4887,27 @@ BYTE Rb_Check(BYTE ch)
 #endif
 }
 
+// filter_error_fg 를 lError 로 옮긴다
+//  비트마다 세우거나 지운다. 한쪽 필터만 정상으로 돌아와도 그 쪽 에러만 풀린다.
+//  (묶음으로 판단하면 다른 쪽에 에러가 남아 있을 때 이미 풀린 쪽이 안 지워진다)
+void Filter_Err_Apply(void)
+{
+	if(filter_error_fg & 0x44)	lError |=  ERR_FILTER_RD1;   // 0x04 읽기 , 0x40 범위
+	else						lError &= (~ERR_FILTER_RD1);
+	
+	if(filter_error_fg & 0x88)	lError |=  ERR_FILTER_RD2;
+	else						lError &= (~ERR_FILTER_RD2);
+	
+	if(filter_error_fg & 0x01)	lError |=  ERR_FILTER_WR1;   // 위조 · 암호 · 되쓰기
+	else						lError &= (~ERR_FILTER_WR1);
+	
+	if(filter_error_fg & 0x02)	lError |=  ERR_FILTER_WR2;
+	else						lError &= (~ERR_FILTER_WR2);
+	
+	if(filter_error_fg & 0xcf)	filter_error = 1;
+	else						filter_error = 0;
+}
+
 // 필터 에러 비트를 하나만 남긴다
 //  원인이 겹쳐 E01~E04 가 동시에 뜨는 것을 막는다.
 //  성공 경로(&= 0xba / 0x75) 는 그대로 두고, 원인이 확정될 때마다 갱신한다.
@@ -7661,18 +7682,7 @@ void Filter_life_save(void)
 	}
 
 	//필터쓰기에러시 오류수정	080128
-  	if(filter_error_fg & 0x03)	// 0xcf)		
-  	{
-  	  	filter_error = 1;	
-		if(filter_error_fg&0x01)	lError |= ERR_FILTER_WR1 ;
-		if(filter_error_fg&0x02)	lError |= ERR_FILTER_WR2 ;
-  	}
-  	else
-  	{
-  	  	filter_error = 0;
-		lError &= (~ERR_FILTER_WR1) ;
-		lError &= (~ERR_FILTER_WR2) ;
-  	}
+  	Filter_Err_Apply();
 
 //231005	life_save_fg = 0;  
 }
@@ -7712,6 +7722,14 @@ void	Filter_life_check(void)         // 점검 기능
 			delay_1ms(10);	//210220 5->10
 		}*/
 						
+		// 칩 존재 여부와 AES 키는 LoadFilter1_Init 에서만 갱신된다.
+		// 칩을 뺐다 꽂았을 때 에러가 풀리도록, 에러 중이면 다시 확인한다.
+		if( !bChipPresent1 || (filter_error_fg & F1_ERR_MASK) )
+		{
+			LoadFilter1_Init();
+			delay_1ms(1);
+		}
+		
 		read_f1_ex_life =  LoadFilter(ADDR_F1); // Eeprom_ex_load(1);
 		//f1_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
 
@@ -7789,6 +7807,13 @@ void	Filter_life_check(void)         // 점검 기능
 			delay_1ms(10);	//210220 5->10
 		}*/
 				
+		
+		// 칩 존재 여부와 AES 키는 LoadFilter2_Init 에서만 갱신된다.
+		if( !bChipPresent2 || (filter_error_fg & F2_ERR_MASK) )
+		{
+			LoadFilter2_Init();
+			delay_1ms(1);
+		}
 		
 		read_f2_ex_life =  LoadFilter_2(ADDR_F2); // Eeprom_ex_load(2);
 		//f2_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
@@ -7876,34 +7901,7 @@ void	Filter_life_check(void)         // 점검 기능
   	  	filter_change_fg &= 0xdd;
   	} 
   	  	
-  	filter_error = 0;
-  	
-  	if(filter_error_fg & 0xcc) //if(filter_error_fg & 0xcf)
-  	{
-  	  	filter_error = 1;
-		if(filter_error_fg&0x44)	lError |= ERR_FILTER_RD1;
-		if(filter_error_fg&0x88)	lError |= ERR_FILTER_RD2;
-  	}
-  	else
-  	{
-		lError &= (~ERR_FILTER_RD1);
-		lError &= (~ERR_FILTER_RD2);
-  	}
-  	
-  	// 위조 / 암호 오류 / 되쓰기는 0x01 , 0x02 로 표시된다.
-  	// Filter_life_save() 는 저장할 게 있을 때만 불리는데 위조 칩은 라이프가
-  	// 0 이라 저장이 걸리지 않아 한 번도 안 불린다. 여기서도 lError 로 옮긴다.
-  	if(filter_error_fg & 0x03)
-  	{
-  	  	filter_error = 1;
-		if(filter_error_fg&0x01)	lError |= ERR_FILTER_WR1;
-		if(filter_error_fg&0x02)	lError |= ERR_FILTER_WR2;
-  	}
-  	else
-  	{
-		lError &= (~ERR_FILTER_WR1);
-		lError &= (~ERR_FILTER_WR2);
-  	}
+  	Filter_Err_Apply();
   	
   	life_check_fg=0;
 }

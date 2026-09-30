@@ -695,6 +695,7 @@ void Rb_Sync_Buffer(void);
 BYTE Rb_Check(BYTE ch);
 void Rb_Clear(BYTE ch);
 void Filter_Err_Set(BYTE mask, BYTE bit);
+void Filter_Err_Apply(void);
 uint8_t IsFilterSwapped(uint8_t channel);
 
 /* filter_error_fg 의 필터별 에러 비트 묶음
