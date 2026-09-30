@@ -192,6 +192,7 @@ extern ULONG lFlowSum_In;
 #if VALVE_TEST_MODE
 extern BYTE bVtSel, bVtSol, bVtPump;
 extern BYTE bVtSns, bVtSnsCnt;
+extern BYTE bPrimeStep, bPrimeCycle;
 static ULONG lVtFlow = 0;
 #endif
 extern ULONG lFlowSum_Hot;
@@ -1509,7 +1510,20 @@ void fcDisplay(void)
 		Display_Flushing();
 	}
 
-#if VALVE_TEST_MODE
+#if PRIME_MODE
+	// 펌프 교체 후 초기 급수
+	//  좌 : [단계] [반복 2자리]   단계 0 대기 1,2 배기급수 3 출수확인 8 실패 9 완료
+	//  우 : 온수 유량센서(PE7) 누적 펄스 하위 3자리
+	DISP_SetDigitNum(0, (BYTE)(bPrimeStep % 10),   0);
+	DISP_SetDigitNum(1, (BYTE)(bPrimeCycle/10%10), 0);
+	DISP_SetDigitNum(2, (BYTE)(bPrimeCycle%10),    0);
+	
+	DISP_SetDigitNum(3, (BYTE)(lFlowSum_Hot/100%10), 0);
+	DISP_SetDigitNum(4, (BYTE)(lFlowSum_Hot/10%10),  0);
+	DISP_SetDigitNum(5, (BYTE)(lFlowSum_Hot%10),     0);
+#endif
+
+#if (VALVE_TEST_MODE && !PRIME_MODE)
 	// 밸브 · 펌프 수동 시험
 	//  좌 : [선택SOL번호] [열림1/닫힘0] [펌프1/정지0]
 	//  우 : 선택한 유량센서 누적 펄스 하위 3자리 (정수 버튼으로 센서 선택)

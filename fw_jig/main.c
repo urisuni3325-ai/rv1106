@@ -654,6 +654,16 @@ WORD wFlushingCnt=0;
 BYTE bPumpRunFg = 0;      // 1 = 펌프에 PWM 이 나가는 중
 BYTE bPumpDryFg = 0;      // 1 = 무부하 판정으로 펌프를 잠갔다
 WORD wPumpDryCnt = 0;     // 유량 없이 돈 시간 (100ms)
+WORD wFlushPumpTick = 0;  // 플러싱 펌프 간헐 운전 타이머
+BYTE bFlushPumpOffFg = 0; // 1 = 간헐 운전의 정지 구간
+
+#if PRIME_MODE
+// 펌프 교체 후 초기 급수
+BYTE bPrimeStep  = 0;     // 0 대기 / 1 배기급수(펌프ON) / 2 배기급수(펌프OFF)
+                          // 3 출수확인 / 8 실패 / 9 완료
+WORD wPrimeTick  = 0;
+BYTE bPrimeCycle = 0;
+#endif
 WORD test=0;
 
 uint32_t lDispenseTick = 0;      // 연속 출수 시간 카운트
@@ -1016,6 +1026,129 @@ void PwmHotPump_out(WORD pwm_data)
     HAL_TIMER2n_Init(pConfig_HotPump->pTIMER2x, &TIMER20_Config);
     HAL_TIMER2n_Start(pConfig_HotPump->pTIMER2x);
 }
+// 플러싱 펌프 간헐 운전
+//  펌프 사양이 30초 동작 / 30초 정지이므로 연속으로 돌리지 않는다.
+void Flush_Pump_Duty(void)
+{
+	if(bFlushPumpOffFg)
+	{
+		PwmHotPump_off();
+		
+		if(++wFlushPumpTick >= FLUSH_PUMP_OFF_TICK)
+		{
+			wFlushPumpTick  = 0;
+			bFlushPumpOffFg = 0;
+		}
+	}
+	else
+	{
+		PwmHotPump_out(FLUSH_PUMP_PWM);
+		
+		if(++wFlushPumpTick >= FLUSH_PUMP_ON_TICK)
+		{
+			wFlushPumpTick  = 0;
+			bFlushPumpOffFg = 1;
+		}
+	}
+}
+
+#if PRIME_MODE
+// 프라이밍 밸브 조합
+//  배기 : 코크(5SV)를 닫고 가스배기(7SV)와 배수(8SV)를 열어 공기를 뺀다.
+//         온수 출수의 맨 앞 0.7초 가스빼기 구간과 같은 조합이다.
+static void Prime_Valve_Vent(void)
+{
+	SOL1_OPEN;                        // 원수 유입
+	SOL2_OFF;	SOL3_OFF;	SOL4_OFF;
+	SOL5_OFF;                         // 코크 닫음
+	SOL6_OFF;
+	SOL7_ON;	SOL8_ON;              // 가스배기 열기
+}
+//  출수 : 코크로 실제로 물이 나오는지 확인한다.
+static void Prime_Valve_Out(void)
+{
+	SOL1_OPEN;
+	SOL2_OFF;	SOL3_OFF;	SOL4_OFF;
+	SOL6_OFF;	SOL7_OFF;	SOL8_OFF;
+	SOL5_ON;                          // 코크로 출수
+}
+static void Prime_Valve_Stop(void)
+{
+	SOL2_OFF;	SOL3_OFF;	SOL4_OFF;
+	SOL5_OFF;	SOL6_OFF;	SOL7_OFF;	SOL8_OFF;
+}
+
+// 펌프 교체 후 초기 급수 (100ms)
+//  부압밸브는 펌프가 만든 부압으로만 열린다. 새 펌프는 안이 공기뿐이라
+//  한 번에 물을 못 빤다. 5초 돌리고 3초 쉬기를 반복해 공기를 조금씩
+//  밀어내면 물이 올라온다. 히터는 이 동안 절대 켜지 않는다.
+void Prime_Exe(void)
+{
+	HEATER_OFF;                       // 빈 히터 가열 금지
+	Pwm_off();
+	RELAY_OFF;
+	
+	switch(bPrimeStep)
+	{
+		case 1 :                        // 배기 급수 : 펌프 ON
+			Prime_Valve_Vent();
+			PwmHotPump_out(PRIME_PUMP_PWM);
+			
+			if(lFlowSum_Hot >= PRIME_CNT_VENT)
+			{
+				wPrimeTick   = 0;
+				lFlowSum_Hot = 0;
+				bPrimeStep   = 3;           // 물이 올라왔다 -> 출수 확인
+			}
+			else if(++wPrimeTick >= PRIME_ON_TICK)
+			{
+				wPrimeTick = 0;
+				bPrimeStep = 2;
+			}
+			break;
+		
+		case 2 :                        // 배기 급수 : 펌프 정지 (간헐 운전)
+			Prime_Valve_Vent();
+			PwmHotPump_off();
+			
+			if(++wPrimeTick >= PRIME_OFF_TICK)
+			{
+				wPrimeTick = 0;
+				
+				if(++bPrimeCycle >= PRIME_MAX_CYCLE)	bPrimeStep = 8;   // 실패
+				else									bPrimeStep = 1;
+			}
+			break;
+		
+		case 3 :                        // 출수 확인 : 코크로 나오는지
+			Prime_Valve_Out();
+			PwmHotPump_out(PRIME_PUMP_PWM);
+			
+			if(lFlowSum_Hot >= PRIME_CNT_OUT)		bPrimeStep = 9;   // 완료
+			else if(++wPrimeTick >= PRIME_OUT_TICK)	bPrimeStep = 8;   // 실패
+			break;
+		
+		case 8 :                        // 실패 : 원수까지 잠근다
+			PwmHotPump_off();
+			Prime_Valve_Stop();
+			SOL1_CLOSE;
+			break;
+		
+		case 9 :                        // 완료
+			PwmHotPump_off();
+			Prime_Valve_Stop();
+			SOL1_OPEN;
+			break;
+		
+		default :                       // 0 대기
+			PwmHotPump_off();
+			Prime_Valve_Stop();
+			SOL1_OPEN;
+			break;
+	}
+}
+#endif
+
 #if VALVE_TEST_MODE
 // 밸브 · 펌프 수동 시험 : 비트맵을 실제 출력에 반영한다
 void Valve_Test_Apply(void)
@@ -1880,6 +2013,9 @@ void mainloop(void)
 			
 			Flow_in_check();//유량 체크 
 			Pump_Dry_Check();// 펌프 무부하 보호 
+#if PRIME_MODE
+			Prime_Exe();     // 펌프 교체 후 초기 급수 
+#endif
 			
 			Heater_Control();
 			Flow_Hot_Pid(); //heater
@@ -1961,7 +2097,21 @@ void mainloop(void)
 
 			fcDisplay();
 			
-#if VALVE_TEST_MODE
+#if PRIME_MODE
+			lError     = 0;                           // 프라이밍 모드 : 에러 판정 무시
+			serial_err = 0;
+			
+			backlight_off_cnt = 0;
+			backlight_en_fg   = 1;
+			
+			if( (s_mode & 0x7ff) == FLUSHING )        // 플러싱이면 키가 막히므로 빠져나온다
+			{
+				s_mode        = PURE;
+				m_state       = 0;
+				bFlushingStep = 0;
+				wFlushingCnt  = 0;
+			}
+#elif VALVE_TEST_MODE
 			lError     = 0;                           // 수동 시험 모드 : 에러 판정 무시
 			serial_err = 0;
 			Valve_Test_Apply();
@@ -2504,8 +2654,8 @@ void Flow_Hot_Pid(void)
 	long control_output ;
 	BYTE i;
 
-#if VALVE_TEST_MODE
-	return;                    // 수동 시험 모드 : 펌프는 Valve_Test_Apply 가 맡는다
+#if (VALVE_TEST_MODE || PRIME_MODE)
+	return;                    // 시험 · 프라이밍 모드 : 펌프는 그 쪽에서 맡는다
 #endif
 #if HOT_TEST_MODE
 	// 온수 시험 모드 : PID 없이 고정 PWM 으로 계속 돌린다
@@ -2674,7 +2824,7 @@ void Flow_Hot_Pid(void)
 //100ms
 void Heater_Control(void)
 {
-#if VALVE_TEST_MODE
+#if (VALVE_TEST_MODE || PRIME_MODE)
 	HEATER_OFF;
 	return;
 #endif
@@ -3370,8 +3520,8 @@ void Output_mL_Control(void)
 
 void fcError(void)
 {
-#if VALVE_TEST_MODE
-	// 수동 시험 모드 : 에러 처리를 하지 않는다
+#if (VALVE_TEST_MODE || PRIME_MODE)
+	// 수동 시험 · 프라이밍 모드 : 에러 처리를 하지 않는다
 	//  이 함수의 마지막 else 가 500ms 마다 SOL1_OPEN 을 하므로
 	//  10ms 마다 돌는 Valve_Test_Apply() 의 SOL1_CLOSE 와 서로 싸우며
 	//  밸도가 딱딱 소리를 낸다
@@ -3533,9 +3683,13 @@ void fcError(void)
 **************************************************************************************************/
 void	Pump_Dry_Check(void)
 {
-#if VALVE_TEST_MODE
-	return;                    // 수동 시험 모드 : 펌프는 사람이 직접 껐다 켠다
+#if (VALVE_TEST_MODE || PRIME_MODE)
+	return;                    // 시험 · 프라이밍 모드 : 펌프는 그 쪽에서 맡는다
 #endif
+	// 플러싱의 펌프 구간은 간헐 운전과 단계 타임아웃으로 따로 지킨다.
+	//  라인이 비어 있으면 물이 올라오는 데 10초가 넘을 수 있다.
+	if((s_mode&0x7ff) == FLUSHING)	{ wPumpDryCnt = 0;	return; }
+	
 	if(!bPumpRunFg)	{ wPumpDryCnt = 0;	return; }
 	
 	if(saved_flow_hot_pulse)	wPumpDryCnt = 0;              // 물이 지나가고 있다
@@ -3811,8 +3965,8 @@ void	Flow_in_check(void)
 **************************************************************************************************/
 void  Output_control(void)	//1sec -> 0.1
 {
-#if VALVE_TEST_MODE
-	return;                    // 수동 시험 모드 : 밸브는 Valve_Test_Apply 가 맡는다
+#if (VALVE_TEST_MODE || PRIME_MODE)
+	return;                    // 시험 · 프라이밍 모드 : 밸브는 그 쪽에서 맡는다
 #endif
 
  	//if(filter_error==0 )	//error==0
@@ -4571,7 +4725,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL7_ON;
 						SOL8_ON;
 						
-						PwmHotPump_out(FLUSH_PUMP_PWM);
+						Flush_Pump_Duty();
 					}
 					else if(bFlushingStep==3){ //정수라인 물채우기
 						
@@ -4598,7 +4752,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL7_ON;                 // 온수 배수
 						SOL8_ON;                 // 산성수 배수
 						
-						PwmHotPump_out(FLUSH_PUMP_PWM);    // 마이크로 펌프 ON
+						Flush_Pump_Duty();                 // 마이크로 펌프 (간헐 운전)
 						
 						bFlushHeaterFg = 1;      //  히터 테스트 구간
 					}
@@ -4613,7 +4767,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL7_ON;
 						SOL8_ON;
 						
-						PwmHotPump_out(FLUSH_PUMP_PWM);
+						Flush_Pump_Duty();
 						
 						bFlushHeaterFg = 0;      //  히터 OFF, 잔열만 배수
 					}
@@ -4627,6 +4781,9 @@ void  Output_control(void)	//1sec -> 0.1
 		{
 			ionize_fg=0;   // 전해중
 			flow_in_fg=0;  // 물유입
+			
+			wFlushPumpTick  = 0;    // 플러싱 펌프 간헐 운전 초기화
+			bFlushPumpOffFg = 0;
 			cleaning_fg=0;
 					
 			bFlushHeaterFg = 0;     
@@ -6347,8 +6504,8 @@ void key_input(void)
 
 	if((key_value) &&( old_key_value==0) )
 	{
-#if VALVE_TEST_MODE
-		// 수동 시험 모드 : 키를 막는 조건을 전부 건너뛴다
+#if (VALVE_TEST_MODE || PRIME_MODE)
+		// 수동 시험 · 프라이밍 모드 : 키를 막는 조건을 전부 건너뛴다
 		//  1) 플러싱 모드이면 모든 키가 죽는다
 		//  2) 백라이트가 꺼져 있으면 출수키 첫 번째 누름이 삼켜진다 (key_new 가 안 생김)
 		//  3) 출수중이면 다른 키가 전부 TCH_START 로 바뀐다
@@ -6419,6 +6576,42 @@ void key_input(void)
 **************************************************************************************************/
 void Key_exe(void)
 {
+#if PRIME_MODE
+	switch(key_new)
+	{
+		case TCH_HOT :
+		case TCH_HOT_LONG :
+			// 온수 버튼 : 초기 급수 시작 (대기 · 완료 · 실패 상태에서만)
+			if( (bPrimeStep == 0) || (bPrimeStep == 8) || (bPrimeStep == 9) )
+			{
+				bPrimeStep   = 1;
+				wPrimeTick   = 0;
+				bPrimeCycle  = 0;
+				lFlowSum_Hot = 0;
+				flow_hot_pulse_cnt = 0;
+			}
+			break;
+		
+		case TCH_ML :
+		case TCH_ML_MAX :
+			// 용량 버튼 : 중단
+			bPrimeStep  = 0;
+			wPrimeTick  = 0;
+			bPrimeCycle = 0;
+			break;
+		
+		case TCH_ALKALI :
+			lFlowSum_Hot = 0;	flow_hot_pulse_cnt = 0;   // 유량 0
+			break;
+		
+		default : break;
+	}
+	
+	Voice_output(SND_SELECT);
+	key_new = 0x00;
+	return;
+#endif
+
 #if VALVE_TEST_MODE
 	switch(key_new)
 	{

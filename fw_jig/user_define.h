@@ -78,6 +78,33 @@
 ****************************************************************************/
 #define VALVE_TEST_MODE     1
 
+/****************************************************************************
+   펌프 교체 후 초기 급수 (프라이밍) 서비스 모드
+     0 = 사용 안 함 , 1 = 사용 . VALVE_TEST_MODE 보다 우선한다.
+
+     온수 입수에는 솔레노이드가 없고 부압밸브(MO226)가 달려 있다.
+     펌프가 만든 부압으로만 열리므로, 펌프를 새로 달면 펌프와 온수
+     라인이 공기로 차 있어 한 번에 물을 못 빤다. 짧게 끊어 돌려
+     공기를 조금씩 밀어내야 물이 올라온다.
+     펌프(S370D5-LP)의 수명 조건도 30초 동작 / 30초 정지의 간헐 운전이다.
+
+     온수 버튼 : 시작 (대기 · 완료 · 실패 상태에서)
+     용량 버튼 : 중단
+     알칼리 버튼 : 유량 누적 0
+
+     화면  좌 3자리 : [단계] [반복 2자리]
+                      단계 0 대기 / 1,2 배기 급수 / 3 출수 확인 / 8 실패 / 9 완료
+           우 3자리 : 온수 유량센서(PE7) 누적 펄스 하위 3자리
+****************************************************************************/
+#define PRIME_MODE          0
+#define PRIME_PUMP_PWM   1800      // 프라이밍 PWM (주기 2000). 부압을 최대로
+#define PRIME_ON_TICK      50      // 펌프 동작 5초  (100ms 단위)
+#define PRIME_OFF_TICK     30      // 펌프 정지 3초
+#define PRIME_MAX_CYCLE    24      // 배기 급수 최대 24회 (약 3분 12초)
+#define PRIME_CNT_VENT    200      // 배기 급수 완료 : 온수 유량 200 펄스 (약 77mL)
+#define PRIME_CNT_OUT     300      // 출수 확인 완료 : 온수 유량 300 펄스 (약 115mL)
+#define PRIME_OUT_TICK    300      // 출수 확인 최대 30초
+
 #if FILTER_PORT_SWAP
 #define F1_ReadID           GD25D10_2_ReadID
 #define F1_ReadUID          GD25D10_2_Read16Bytes_UID
@@ -159,6 +186,8 @@
 //  못 빨면 유량이 0 인 채로 계속 헛돈다. 그 상태를 오래 두면 다이어프램과
 //  체크밸브가 상해서 다시는 부압을 못 만든다.
 #define PUMP_DRY_TICK         100    // 펌프는 도는데 온수 유량 0 : 10초면 정지 (100ms 단위)
+#define FLUSH_PUMP_ON_TICK    300    // 플러싱 펌프 연속 동작 한계 30초
+#define FLUSH_PUMP_OFF_TICK   100    // 이어서 10초 정지 (30초 동작 / 정지 사양)
 #define FLUSH_STEP_TICK      1800    // 플러싱 한 단계 최대 180초 (100ms 단위)
 
 #define FLUSH_HOT_TEST_ON     550    // 히터 ON  : 55.0도 미만 (0.1도 단위)
@@ -743,6 +772,8 @@ void delay_1ms(WORD delay);
 void Output_control(void);
 void Flow_in_check(void);
 void Pump_Dry_Check(void);
+void Flush_Pump_Duty(void);
+void Prime_Exe(void);
 
 void Filter_life_reload(void);
 void F1_life_reload(void);
