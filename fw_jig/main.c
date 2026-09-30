@@ -3322,6 +3322,13 @@ void Output_mL_Control(void)
 
 void fcError(void)
 {
+#if VALVE_TEST_MODE
+	// 수동 시험 모드 : 에러 처리를 하지 않는다
+	//  이 함수의 마지막 else 가 500ms 마다 SOL1_OPEN 을 하므로
+	//  10ms 마다 돌는 Valve_Test_Apply() 의 SOL1_CLOSE 와 서로 싸우며
+	//  밸도가 딱딱 소리를 낸다
+	return;
+#endif
 	
 	
 	//필터 에러 
