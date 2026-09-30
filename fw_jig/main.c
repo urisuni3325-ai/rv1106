@@ -514,6 +514,8 @@ uint32_t 	eep_data=0;
 BYTE bVtSel  = 1;      // 선택 SOL 번호 1~8
 BYTE bVtSol  = 0;      // 열린 SOL 비트맵 (bit0 = SOL1 ... bit7 = SOL8)
 BYTE bVtPump = 0;      // 1 = 펌프 ON
+BYTE bVtSns  = 1;      // 우측에 보이는 유량센서 1 = 입수(PE5) , 3 = 온수입수(PE7) , 2 = 출수(PE6)
+BYTE bVtSnsCnt = 0;    // 센서를 바꾼 뒤 번호를 보여주는 타이머 (10ms)
 #endif
 
 #if FILTER_WRITER
@@ -1952,6 +1954,7 @@ void mainloop(void)
 			lError     = 0;                           // 수동 시험 모드 : 에러 판정 무시
 			serial_err = 0;
 			Valve_Test_Apply();
+			if(bVtSnsCnt)	bVtSnsCnt--;              // 유량센서 번호 표시 시간
 #elif HOT_TEST_MODE
 			lError     = 0;                           // 온수 시험 모드 : 에러 판정 무시
 			serial_err = 0;
@@ -6358,6 +6361,20 @@ void Key_exe(void)
 		case TCH_ML :
 		case TCH_ML_MAX :
 			bVtSol  = 0;	bVtPump = 0;                  // 전부 닫고 펌프 정지
+			break;
+		
+		case TCH_PURE :
+			// 우측 3자리에 보일 유량센서 순환 : 1 입수(PE5) -> 3 온수입수(PE7) -> 2 출수(PE6)
+			if     (bVtSns == 1)	bVtSns = 3;
+			else if(bVtSns == 3)	bVtSns = 2;
+			else					bVtSns = 1;
+			bVtSnsCnt = 80;                               // 0.8초간 센서 번호를 보여준다
+			break;
+		
+		case TCH_ALKALI :
+			// 유량 누적값 전부 0 으로
+			lFlowSum_In  = 0;	lFlowSum_Hot = 0;	lFlowSum_Out = 0;
+			flow_pulse_cnt = 0;	flow_hot_pulse_cnt = 0;	flow_out_pulse_cnt = 0;
 			break;
 		
 		default : break;

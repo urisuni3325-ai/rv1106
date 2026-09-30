@@ -191,6 +191,8 @@ extern ULONG lFlowSum_Out;
 extern ULONG lFlowSum_In;
 #if VALVE_TEST_MODE
 extern BYTE bVtSel, bVtSol, bVtPump;
+extern BYTE bVtSns, bVtSnsCnt;
+static ULONG lVtFlow = 0;
 #endif
 extern ULONG lFlowSum_Hot;
 extern uint32_t lError;
@@ -1510,14 +1512,28 @@ void fcDisplay(void)
 #if VALVE_TEST_MODE
 	// 밸브 · 펌프 수동 시험
 	//  좌 : [선택SOL번호] [열림1/닫힘0] [펌프1/정지0]
-	//  우 : 입수 누적 mL 하위 3자리
+	//  우 : 선택한 유량센서 누적 mL 하위 3자리 (정수 버튼으로 센서 선택)
 	DISP_SetDigitNum(0, (BYTE)(bVtSel % 10), 0);
 	DISP_SetDigitNum(1, (BYTE)((bVtSol >> (bVtSel - 1)) & 0x01), 0);
 	DISP_SetDigitNum(2, (BYTE)(bVtPump & 0x01), 0);
 	
-	DISP_SetDigitNum(3, (BYTE)(lFlowSum_In/100%10), 0);
-	DISP_SetDigitNum(4, (BYTE)(lFlowSum_In/10%10),  0);
-	DISP_SetDigitNum(5, (BYTE)(lFlowSum_In%10),     0);
+	if(bVtSnsCnt)
+	{
+		// 유량센서를 바꾼 직후 : - N - 으로 어느 센서인지 보여준다
+		DISP_SetDigitNum(3, FONT_MINUS,            0);
+		DISP_SetDigitNum(4, (BYTE)(bVtSns % 10),   0);
+		DISP_SetDigitNum(5, FONT_MINUS,            0);
+	}
+	else
+	{
+		if     (bVtSns == 3)	lVtFlow = lFlowSum_Hot;   // 온수입수 PE7
+		else if(bVtSns == 2)	lVtFlow = lFlowSum_Out;   // 출수 PE6
+		else					lVtFlow = lFlowSum_In;    // 입수 PE5
+		
+		DISP_SetDigitNum(3, (BYTE)(lVtFlow/100%10), 0);
+		DISP_SetDigitNum(4, (BYTE)(lVtFlow/10%10),  0);
+		DISP_SetDigitNum(5, (BYTE)(lVtFlow%10),     0);
+	}
 #endif
 
 #if FLOW_DEBUG_DISP
