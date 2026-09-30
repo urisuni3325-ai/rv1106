@@ -33,6 +33,12 @@
 ****************************************************************************/
 #define FILTER_PORT_SWAP    1
 
+/* 플러싱 진행 단계 표시 (확인용)
+   1 : 플러싱 중 좌측 3자리에 - 단계 - , 우측에 누적 입수량(mL) 을 띄운다.
+       어느 단계에서 멈추는지, 유량이 올라가는지 눈으로 확인할 수 있다.
+   0 : 표시 없음 (양산) */
+#define FLUSH_STEP_DISP     1
+
 #if FILTER_PORT_SWAP
 #define F1_ReadID           GD25D10_2_ReadID
 #define F1_ReadUID          GD25D10_2_Read16Bytes_UID

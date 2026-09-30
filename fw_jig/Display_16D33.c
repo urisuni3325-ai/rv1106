@@ -2537,6 +2537,25 @@ void Display_Flushing(void)
 		fcDispErrorBuffer();
 	}
 	
+#if FLUSH_STEP_DISP
+	// 플러싱 진행 확인용
+	//  좌측 3자리 : - 단계 -   (0 필터세척 1 냉수라인 2 온수라인 3 정수라인
+	//                           4 히터테스트 5 잔열배수)
+	//  fcDispErrorBuffer 는 우측 3자리만 쓰므로 에러 표시와 같이 볼 수 있다.
+	DISP_SetDigitNum(0, FONT_MINUS, 0);
+	DISP_SetDigitNum(1, (BYTE)(bFlushingStep % 10), 0);
+	DISP_SetDigitNum(2, FONT_MINUS, 0);
+	
+	//  우측 3자리 : 에러가 없으면 현재 단계 누적 입수량 하위 3자리 (mL)
+	//               숫자가 올라가면 진행 중 , 멈춰 있으면 유량이 안 들어오는 것
+	if(!lError)
+	{
+		DISP_SetDigitNum(3, (BYTE)(lFlowSum/100%10), 0);
+		DISP_SetDigitNum(4, (BYTE)(lFlowSum/10%10),  0);
+		DISP_SetDigitNum(5, (BYTE)(lFlowSum%10),     0);
+	}
+#endif
+	
 	/*
 	DISP_SetDigitNum(0, 0 /100000%10, 0);  //flow_hot_liter
 				DISP_SetDigitNum(1, 0/10000%10, 0);
