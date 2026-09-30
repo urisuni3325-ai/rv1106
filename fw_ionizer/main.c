@@ -2509,7 +2509,13 @@ void Flow_Hot_Pid(void)
 		bWaitCnt = 0;
 		bWaitFg=0;
 		
-		PwmHotPump_off();		
+		// 플러싱의 펌프 구간은 Output_control() 이 고정 PWM 을 준다.
+		// 여기서 끄면 100ms 마다 켜고 끄기를 반복해 펌프가 제대로 돌지 않는다.
+		if( !( ((s_mode&0x7ff) == FLUSHING)
+		       && ((bFlushingStep == 2) || (bFlushingStep == 4) || (bFlushingStep == 5)) ) )
+		{
+			PwmHotPump_off();
+		}
 	}
 }
 
@@ -3043,84 +3049,84 @@ void Output_mL_Control(void)
 	if(flow_in_fg && ((s_mode&0x7f0) != CLEAN) && ((s_mode&0x7f0) != MODE_SET) )
 	{
 		if(( s_mode&0x7ff) == FLUSHING  ){  // 플러싱---------------------------
+			// 단계별 진행량 판정
+			//  0 / 1 / 3 단계 : 원수 직통 -> 입수 유량센서(lFlowSum_In)
+			//  2 / 4 / 5 단계 : 마이크로 펌프 -> 온수 유량센서(lFlowSum_Hot)
+			//    펌프 구간은 원수가 바로 흐르지 않아 입수 센서로는 진행되지 않는다.
+			//    온수 출수의 정량 판정도 lFlowSum_Hot 을 쓴다.
 			if(bFlushingStep==0){
-				flow = 3000; //3000ml
-				lFlowSum =   lFlowSum_In ;// 입수량
-				
+				flow = FLUSH_ML_FILTER;           // 3000ml 필터 세척
+				lFlowSum = lFlowSum_In;           // 입수량
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
-					
 					lFlowSum_In = 0;
+					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
 					bFlushingStep=1;
 				}
 			}
-			else if(bFlushingStep==1){//냉수 라인 물채우기 900ml
-				flow = 1000; //900ml
-				lFlowSum =   lFlowSum_In ;// 입수량
-				
+			else if(bFlushingStep==1){            // 냉수 라인 물채우기
+				flow = FLUSH_ML_COOL;             // 1000ml
+				lFlowSum = lFlowSum_In;           // 입수량
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
-					
-					lFlowSum_In=0;
+					lFlowSum_In = 0;
+					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
 					bFlushingStep=2;
 				}
 			}
-			else if(bFlushingStep==2){//온수 라인 물채우기 300ml
-				flow = 300; //300ml
-				lFlowSum =   lFlowSum_In ;// 입수량
-				
+			else if(bFlushingStep==2){            // 온수 라인 물채우기 (펌프)
+				flow = FLUSH_ML_HOT;              // 300ml
+				lFlowSum = lFlowSum_Hot;          // 온수 유량센서
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
-					
-					lFlowSum_In=0;
+					lFlowSum_In = 0;
+					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
 					bFlushingStep=3;
 				}
 			}
-			else if(bFlushingStep==3){//온수 라인 물채우기 300ml
-				flow = 200; //200ml
-				lFlowSum =   lFlowSum_In ;// 입수량
-				
+			else if(bFlushingStep==3){            // 정수 라인 물채우기
+				flow = FLUSH_ML_PURE;             // 200ml
+				lFlowSum = lFlowSum_In;           // 입수량
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
-					
-					lFlowSum_In=0;
+					lFlowSum_In = 0;
+					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
-						bFlushingStep=4; //	bFlushingStep=0;
-				//	bFlushingEnd=1;
-		
-					//Key_action();//정지
+					bFlushingStep=4;
 				}
 			}
-			else if(bFlushingStep==4){ //온수관로 250ml 배수 + 히터 60도 테스트
+			else if(bFlushingStep==4){            // 온수관로 배수 + 히터 60도 테스트 (펌프)
 				flow = FLUSH_ML_HOT_TEST;         // 250ml
-				lFlowSum =   lFlowSum_In ;// 입수량
+				lFlowSum = lFlowSum_Hot;          // 온수 유량센서
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
-					lFlowSum_In=0;
+					lFlowSum_In = 0;
+					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
 					bFlushingStep=5;
 				}
 			}
-			else if(bFlushingStep==5){ //온수관로 300ml 잔열 배수 (히터 OFF)
+			else if(bFlushingStep==5){            // 온수관로 잔열 배수 (히터 OFF, 펌프)
 				flow = FLUSH_ML_HOT_COOL;         // 300ml
-				lFlowSum =   lFlowSum_In ;// 입수량
+				lFlowSum = lFlowSum_Hot;          // 온수 유량센서
 
 				if (lFlowSum >= flow) {
 					lFlowSum = 0;
-					lFlowSum_In=0;
+					lFlowSum_In = 0;
+					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
 					bFlushingStep=0;
@@ -4377,7 +4383,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL7_ON;
 						SOL8_ON;
 						
-						PwmHotPump_out(1100);
+						PwmHotPump_out(FLUSH_PUMP_PWM);
 					}
 					else if(bFlushingStep==3){ //정수라인 물채우기
 						
@@ -4404,7 +4410,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL7_ON;                 // 온수 배수
 						SOL8_ON;                 // 산성수 배수
 						
-						PwmHotPump_out(1100);    // 마이크로 펌프 ON
+						PwmHotPump_out(FLUSH_PUMP_PWM);    // 마이크로 펌프 ON
 						
 						bFlushHeaterFg = 1;      //  히터 테스트 구간
 					}
@@ -4419,7 +4425,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL7_ON;
 						SOL8_ON;
 						
-						PwmHotPump_out(1100);
+						PwmHotPump_out(FLUSH_PUMP_PWM);
 						
 						bFlushHeaterFg = 0;      //  히터 OFF, 잔열만 배수
 					}

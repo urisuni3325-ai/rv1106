@@ -109,6 +109,11 @@
 #define FLUSH_ML_HOT_TEST     250    // 4단계 : 온수관로 배수 + 히터 60도 테스트
 #define FLUSH_ML_HOT_COOL     300    // 5단계 : 온수관로 잔열 배수
 
+/* 플러싱 펌프 구간(2 · 4 · 5 단계) 마이크로 펌프 PWM
+   주기 2000 기준. 물이 안 올라오면 올린다 (최대 1999).
+   온수 출수의 PID 범위는 500~1650 이다. */
+#define FLUSH_PUMP_PWM       1100
+
 #define FLUSH_HOT_TEST_ON     550    // 히터 ON  : 55.0도 미만 (0.1도 단위)
 #define FLUSH_HOT_TEST_OFF    600    // 히터 OFF : 60.0도 이상
 #define FLUSH_HOT_LED_CNT      30    // 온수 LED 순차 점등 주기 10ms x 30 = 300ms
