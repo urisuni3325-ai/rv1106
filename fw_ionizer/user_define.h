@@ -153,6 +153,14 @@
    온수 출수의 PID 범위는 500~1650 이다. */
 #define FLUSH_PUMP_PWM       1100
 
+// 마이크로 펌프 보호
+//  펌프(S370D5-LP)는 수명시험이 30초 동작 / 30초 정지 인 간헐 사용 부품이다.
+//  온수 입수는 부압밸브(MO226)가 펌프의 부압으로만 열리므로, 펌프가 물을
+//  못 빨면 유량이 0 인 채로 계속 헛돈다. 그 상태를 오래 두면 다이어프램과
+//  체크밸브가 상해서 다시는 부압을 못 만든다.
+#define PUMP_DRY_TICK         100    // 펌프는 도는데 온수 유량 0 : 10초면 정지 (100ms 단위)
+#define FLUSH_STEP_TICK      1800    // 플러싱 한 단계 최대 180초 (100ms 단위)
+
 #define FLUSH_HOT_TEST_ON     550    // 히터 ON  : 55.0도 미만 (0.1도 단위)
 #define FLUSH_HOT_TEST_OFF    600    // 히터 OFF : 60.0도 이상
 #define FLUSH_HOT_LED_CNT      30    // 온수 LED 순차 점등 주기 10ms x 30 = 300ms
@@ -734,6 +742,7 @@ void Warning_voice(void);
 void delay_1ms(WORD delay);
 void Output_control(void);
 void Flow_in_check(void);
+void Pump_Dry_Check(void);
 
 void Filter_life_reload(void);
 void F1_life_reload(void);

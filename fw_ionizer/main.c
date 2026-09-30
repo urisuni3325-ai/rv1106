@@ -649,6 +649,11 @@ BYTE bFlushHeaterFg = 0;
 BYTE bFlushingEnd=0;
 BYTE bFlushingEndCnt=0;
 WORD wFlushingCnt=0;
+
+// 마이크로 펌프 보호
+BYTE bPumpRunFg = 0;      // 1 = 펌프에 PWM 이 나가는 중
+BYTE bPumpDryFg = 0;      // 1 = 무부하 판정으로 펌프를 잠갔다
+WORD wPumpDryCnt = 0;     // 유량 없이 돈 시간 (100ms)
 WORD test=0;
 
 uint32_t lDispenseTick = 0;      // 연속 출수 시간 카운트
@@ -983,6 +988,7 @@ void TIMER2n_Init(void)
 }
 void PwmHotPump_off(void)
 {
+	bPumpRunFg = 0;
 
 	TIMER20_Config.AData = 0;
 	TIMER20_Config.BData = 0;
@@ -994,6 +1000,10 @@ void PwmHotPump_off(void)
 }
 void PwmHotPump_out(WORD pwm_data)
 {
+	// 무부하로 판정되어 잠긴 상태면 돌리지 않는다
+	if(bPumpDryFg)	{ PwmHotPump_off();	return; }
+	
+	bPumpRunFg = 1;
 	
 	if(pwm_data>=2000)	pwm_data = 1999;
 	
@@ -1869,6 +1879,7 @@ void mainloop(void)
 			ad_ok_fg = 0;
 			
 			Flow_in_check();//유량 체크 
+			Pump_Dry_Check();// 펌프 무부하 보호 
 			
 			Heater_Control();
 			Flow_Hot_Pid(); //heater
@@ -3141,6 +3152,25 @@ void Output_mL_Control(void)
 	if(flow_in_fg && ((s_mode&0x7f0) != CLEAN) && ((s_mode&0x7f0) != MODE_SET) )
 	{
 		if(( s_mode&0x7ff) == FLUSHING  ){  // 플러싱---------------------------
+			// 단계 타임아웃
+			//  wFlushingCnt 는 단계가 넘어갈 때 0 이 될 뿐 어디서도 증가하지 않아
+			//  단계가 끝나지 않으면 영원히 그 자리에 머물렀다. 2 / 4 / 5 단계는
+			//  마이크로 펌프를 계속 돌리므로 펌프가 무부하로 오래 돌아 상한다.
+			if(++wFlushingCnt >= FLUSH_STEP_TICK)
+			{
+				wFlushingCnt  = 0;
+				lFlowSum      = 0;
+				lFlowSum_In   = 0;
+				lFlowSum_Hot  = 0;
+				bFlushingStep = 0;
+				
+				PwmHotPump_off();
+				lError |= ERR_FLOW;               // E00 : 단계가 진행되지 않음
+				
+				Key_action();                     // 정지
+				return;
+			}
+			
 			// 단계별 진행량 판정
 			//  0 / 1 / 3 단계 : 원수 직통 -> 입수 유량센서(lFlowSum_In)
 			//  2 / 4 / 5 단계 : 마이크로 펌프 -> 온수 유량센서(lFlowSum_Hot)
@@ -3330,6 +3360,10 @@ void Output_mL_Control(void)
 		//  출수를 멈췄으면 판정 근거가 없으므로 여기서 해제한다.
 		//  조건이 그대로면 다음 출수에서 3초 뒤 다시 뜬다.
 		lError &= (~ERR_LEAK);
+		
+		// 펌프 무부하 잠금 해제 : 출수를 멈췄으면 다시 시도할 수 있게 한다
+		bPumpDryFg  = 0;
+		wPumpDryCnt = 0;
 
 	}
 }
@@ -3492,6 +3526,28 @@ void fcError(void)
 	
 	lError_Old = lError;
 }
+/**************************************************************************************************
+		마이크로 펌프 무부하 보호 (100ms)
+		  펌프가 도는데 온수 유량센서(PE7)에 펄스가 없으면 물을 못 빨고 있는 것이다.
+		  10초가 넘으면 펌프를 잠그고 E00 을 띄운다. 출수를 멈추면 잠금이 풀린다.
+**************************************************************************************************/
+void	Pump_Dry_Check(void)
+{
+#if VALVE_TEST_MODE
+	return;                    // 수동 시험 모드 : 펌프는 사람이 직접 껐다 켠다
+#endif
+	if(!bPumpRunFg)	{ wPumpDryCnt = 0;	return; }
+	
+	if(saved_flow_hot_pulse)	wPumpDryCnt = 0;              // 물이 지나가고 있다
+	else if(++wPumpDryCnt >= PUMP_DRY_TICK)
+	{
+		wPumpDryCnt = 0;
+		bPumpDryFg  = 1;
+		PwmHotPump_off();
+		lError |= ERR_FLOW;                                   // E00
+	}
+}
+
 /**************************************************************************************************
 		물 유입시 유량
 **************************************************************************************************/
