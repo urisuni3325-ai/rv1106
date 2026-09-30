@@ -5780,7 +5780,11 @@ void key_input(void)
 	uint16_t cur_sw;
 	BYTE ml_release_event = 0;
 	BYTE hot_release_event = 0;
+#if FILTER_WRITER
+	BYTE clean_release_event = 0;
+#else
 	//BYTE clean_release_event = 0;
+#endif
 	
 	
 	TouchInput();
@@ -5839,6 +5843,17 @@ void key_input(void)
 	}
 	else if ((cur_sw != TCH_CLEAN) && (clean_pressed != 0))
     {
+#if FILTER_WRITER
+        // 치구 : 세정 짧게 누름을 굽기 모드 순환에 쓴다 (본체는 3초 롱키만 사용)
+        if (clean_long_sent == 0)
+        {
+            if (clean_hold_cnt >= KEY_CHATTERING)
+            {
+                key_value = TCH_CLEAN;          // short key
+                clean_release_event = 1;        // 아래 누름 처리에서 지워지지 않게
+            }
+        }
+#endif
        /* if (clean_long_sent == 0)
         {
             if (clean_hold_cnt >= KEY_CHATTERING)
@@ -5854,7 +5869,11 @@ void key_input(void)
 	
 	//-------------------------------------------------------------
 
+#if FILTER_WRITER
+	if (ml_release_event == 0  && (hot_release_event == 0) && (clean_release_event == 0))
+#else
 	if (ml_release_event == 0  && (hot_release_event == 0)) // &&( clean_release_event == 0)
+#endif
     {
 		
 		if(cur_sw == TCH_HOT)
