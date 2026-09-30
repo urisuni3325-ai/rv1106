@@ -3308,6 +3308,14 @@ void Output_mL_Control(void)
 			lDispenseTick = 0;
 		//}
 		wFlowSum_ErrCnt = 0;
+		
+		// 누수 에러 해제
+		//  누수 판정은 출수 중에만 성립한다. 그런데 ERR_LEAK 는 ERR_DISPENSE_STOP
+		//  에 들어 있어 뜨는 순간 출수가 차단되고, 그러면 위의 판정 블록에 다시
+		//  들어오지 못해 해제할 방법이 없었다. 전원을 껐다 켜야 풀리는 상태였다.
+		//  출수를 멈췄으면 판정 근거가 없으므로 여기서 해제한다.
+		//  조건이 그대로면 다음 출수에서 3초 뒤 다시 뜬다.
+		lError &= (~ERR_LEAK);
 
 	}
 }
