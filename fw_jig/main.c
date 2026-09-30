@@ -6386,9 +6386,14 @@ void Key_exe(void)
 			break;
 		
 		case TCH_PURE :
-			// 우측 3자리에 보일 유량센서 순환 : 1 입수(PE5) -> 3 온수입수(PE7) -> 2 출수(PE6)
+			// 유량센서 표시 순환
+			//  1 = 우측에 입수(PE5)
+			//  3 = 우측에 온수입수(PE7)
+			//  2 = 우측에 출수(PE6)
+			//  0 = 좌측 입수(PE5) + 우측 온수입수(PE7) 동시 (밸브 표시는 가려진다)
 			if     (bVtSns == 1)	bVtSns = 3;
 			else if(bVtSns == 3)	bVtSns = 2;
+			else if(bVtSns == 2)	bVtSns = 0;
 			else					bVtSns = 1;
 			bVtSnsCnt = 80;                               // 0.8초간 센서 번호를 보여준다
 			break;
