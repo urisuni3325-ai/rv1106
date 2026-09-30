@@ -1,2 +1,6 @@
 # 스크래치/빌드 산출물
 *.bak.*
+
+# 펌웨어 배포용 압축 (fw_ionizer/ , fw_jig/ 내용과 같아 추적하지 않는다)
+fw_ionizer.zip
+fw_jig.zip
