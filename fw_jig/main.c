@@ -1918,6 +1918,10 @@ void mainloop(void)
 
 			fcDisplay();
 			
+#if HOT_TEST_MODE
+			lError     = 0;                           // 온수 시험 모드 : 에러 판정 무시
+			serial_err = 0;
+#endif
 #if FILTER_WRITER
 			lError     = 0;                           // 치구 모드 : 에러로 키가 막히지 않게
 			serial_err = 0;
@@ -2441,6 +2445,25 @@ void Flow_Hot_Pid(void)
 	long control_output ;
 	BYTE i;
 
+#if HOT_TEST_MODE
+	// 온수 시험 모드 : PID 없이 고정 PWM 으로 계속 돌린다
+	if( s_mode == HOT_OUT )
+	{
+		lPump_rpm = HOT_TEST_PWM;
+		PwmHotPump_out(HOT_TEST_PWM);
+	}
+	else
+	{
+		// 플러싱 펌프 구간은 Output_control() 이 PWM 을 준다
+		if( !( ((s_mode&0x7ff) == FLUSHING)
+		       && ((bFlushingStep == 2) || (bFlushingStep == 4) || (bFlushingStep == 5)) ) )
+		{
+			PwmHotPump_off();
+		}
+	}
+	return;
+#endif
+
 	if( (s_mode == HOT_OUT )  && !lError ){
 		
 		if( s_mode == HOT_OUT)		temper = bSetHotTemper;
@@ -2589,6 +2612,20 @@ void Flow_Hot_Pid(void)
 //100ms
 void Heater_Control(void)
 {
+#if HOT_TEST_MODE
+	// 온수 시험 모드 : 히터는 항상 정지
+	bHeaterFg      = 0;
+	bHeaterFlowCnt = 0;
+	bHeaterStartFg = 0;
+	bHeaterDutyCnt = 0;
+	bHeaterDuty    = 100;
+	lHotTempErr    = 0;
+	lHotTempInteg  = 0;
+	
+	HEATER_OFF;
+	return;
+#endif
+
 	if( s_mode == HOT_OUT  ){  //  !(lError & ERR_FLOW )){	//|| s_mode==FLUSHING_OUT
 
 		/*if(ho_temp >= 990) //99도   ho_temp ??? 
@@ -4280,6 +4317,14 @@ void  Output_control(void)	//1sec -> 0.1
 					RELAY_OFF;        		
 				
 				
+#if HOT_TEST_MODE
+					// 온수 시험 모드 : 0.7초 예비 구간 없이 SOL5 를 계속 열어 둔다
+					SOL6_OFF;
+					SOL7_OFF;
+					SOL8_OFF;
+					
+					SOL5_ON;
+#else
 					if(++wHot_out_cnt<= 7) {// 0.7sec , 7 8 on ->off
 						SOL6_OFF;
 						
@@ -4295,6 +4340,7 @@ void  Output_control(void)	//1sec -> 0.1
 						
 						SOL5_ON; // 출수 시작 
 					}
+#endif
 				
 					
 					flow_in_fg = 1;
