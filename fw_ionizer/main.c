@@ -7431,12 +7431,12 @@ void Fw_Uid_Read(void)
 	uint8_t i;
 	WORD    sum;
 	
-	GD25D10_Read16Bytes_UID(0, uid);
+	F1_ReadUID(0, uid);
 	sum = 0;
 	for(i=0;i<16;i++)	sum += uid[i];
 	wFwUid1 = sum % 1000;
 	
-	GD25D10_2_Read16Bytes_UID(0, uid);
+	F2_ReadUID(0, uid);
 	sum = 0;
 	for(i=0;i<16;i++)	sum += uid[i];
 	wFwUid2 = sum % 1000;
@@ -7464,7 +7464,7 @@ BYTE Filter_Write_1(ULONG v)
 	if(!bChipPresent1)	return 12;           // JEDEC ID 로 미연결 확인
 	
 	ReadCnt( ADDR_F1 , v);                   // 암호문 생성 (SaveCipher1)
-	GD25D10_EraseSector4K(0);
+	F1_Erase4K(0);
 	delay_1ms(10);
 	SaveFilter( ADDR_F1_ID , v);             // chip_id + 암호문 20바이트 기록
 	delay_1ms(10);
@@ -7487,7 +7487,7 @@ BYTE Filter_Write_2(ULONG v)
 	if(!bChipPresent2)	return 12;
 	
 	ReadCnt_2( ADDR_F2 , v);
-	GD25D10_2_EraseSector4K(0);
+	F2_Erase4K(0);
 	delay_1ms(10);
 	SaveFilter_2( ADDR_F2_ID , v);
 	delay_1ms(10);
@@ -7559,7 +7559,7 @@ void Filter_life_save(void)
 			save_f1_life = filter1_life;
 			ReadCnt( ADDR_F1 ,save_f1_life);
 			
-			GD25D10_EraseSector4K(0);
+			F1_Erase4K(0);
 		}
 		else if(f1_save_cnt==2)
 		{
@@ -7623,7 +7623,7 @@ void Filter_life_save(void)
 			save_f2_life = filter2_life;
 			ReadCnt_2( ADDR_F2 ,save_f2_life);
 			
-			GD25D10_2_EraseSector4K(0);
+			F2_Erase4K(0);
 			
 		}
 		else if(f2_save_cnt==2)

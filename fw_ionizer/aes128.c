@@ -349,8 +349,8 @@ int LoadValueGeneric(AES128_ctx* ctx, uint32_t addr, uint32_t* out_v, uint8_t ch
 	
 	if(!present)	return -12;          // 칩 미연결 / 하네스 불량
 		
-  if(channel == 1) GD25D10_Read16Bytes(addr, cipher);
-  else             GD25D10_2_Read16Bytes(addr, cipher);
+  if(channel == 1) F1_Read16(addr, cipher);
+  else             F2_Read16(addr, cipher);
 
   if (is_all_ff(cipher)) return -11;
   AES128_ECB_decrypt(ctx, cipher, plain);
@@ -370,8 +370,8 @@ int PrepareValue(AES128_ctx* ctx, uint32_t addr, uint32_t value, uint8_t channel
 	if(!present)	return -12;          // 칩 미연결시 암호문 생성 금지
 				
 	next_c=0;
-  if(channel == 1) GD25D10_Read16Bytes(addr, cipher);
-  else             GD25D10_2_Read16Bytes(addr, cipher);
+  if(channel == 1) F1_Read16(addr, cipher);
+  else             F2_Read16(addr, cipher);
 
   if (!is_all_ff(cipher)) {
       AES128_ECB_decrypt(ctx, cipher, plain);
@@ -401,15 +401,15 @@ uint8_t IsFilterSwapped(uint8_t channel)
 	if(!present)	return 0;
 
 	// 같은 소켓의 UID 로 상대 채널 키를 유도
-	if(channel == 1)	GD25D10_Read16Bytes_UID(0, uid);
-	else				GD25D10_2_Read16Bytes_UID(0, uid);
+	if(channel == 1)	F1_ReadUID(0, uid);
+	else				F2_ReadUID(0, uid);
 
 	AES128_init(&temp_ctx, (channel == 1) ? master_key2 : master_key1);
 	AES128_ECB_encrypt(&temp_ctx, uid, derived);
 	AES128_init(&alt_ctx, derived);
 
-	if(channel == 1)	GD25D10_Read16Bytes(ADDR_F1, cipher);
-	else				GD25D10_2_Read16Bytes(ADDR_F2, cipher);
+	if(channel == 1)	F1_Read16(ADDR_F1, cipher);
+	else				F2_Read16(ADDR_F2, cipher);
 
 	if(is_all_ff(cipher))	return 0;
 
@@ -476,7 +476,7 @@ void LoadFilter1_Init(void)
 	AES128_ctx temp_ctx;
 
 // 1차 : JEDEC ID 로 칩 존재 확인
-	GD25D10_ReadID(&mid, &mtype, &mcap);
+	F1_ReadID(&mid, &mtype, &mcap);
 	bJedecMid1 = mid;
 	if(is_chip_absent(mid, mtype, mcap)){
 		bChipPresent1 = 0;
@@ -486,7 +486,7 @@ void LoadFilter1_Init(void)
 	bChipPresent1 = 1;
 	
   // 채널 1: UID 읽기
-  GD25D10_Read16Bytes_UID(0, uid1); 
+  F1_ReadUID(0, uid1); 
 	
 #if FILTER_WRITER
 	if(bFwKeyMode == 1)	AES128_init(&temp_ctx, fake_key1);   // 키위조 : 다른 마스터 키
@@ -526,7 +526,7 @@ void LoadFilter2_Init(void)
 	AES128_ctx temp_ctx;
 	
 	// 칩 존재 판정 : JEDEC ID
-	GD25D10_2_ReadID(&mid, &mtype, &mcap);
+	F2_ReadID(&mid, &mtype, &mcap);
 	bJedecMid2 = mid;
 	if(is_chip_absent(mid, mtype, mcap)){
 		bChipPresent2 = 0;
@@ -536,7 +536,7 @@ void LoadFilter2_Init(void)
 	bChipPresent2 = 1;
 	
 	// 채널 2: UID 읽기
-	GD25D10_2_Read16Bytes_UID(0, uid2); 
+	F2_ReadUID(0, uid2); 
 	
 	
 #if FILTER_WRITER
@@ -592,7 +592,7 @@ void SaveFilter(uint32_t addr, uint32_t data) {
 	for(i=0;i<16;i++)	save_data[i+4] = SaveCipher1[i];
 	
 	
-    GD25D10_ByteWrite(addr, save_data);
+    F1_ByteWrite(addr, save_data);
 }
 
 void ReadCnt_2(uint32_t addr, uint32_t data) {
@@ -612,7 +612,7 @@ void SaveFilter_2(uint32_t addr, uint32_t data) {
 	save_data[3] =( chip_id2>>24)&0xff;
 	for(i=0;i<16;i++)	save_data[i+4] = SaveCipher2[i];
 	
-    GD25D10_2_ByteWrite(addr, save_data);
+    F2_ByteWrite(addr, save_data);
 }
  
 // 채널 1 로드

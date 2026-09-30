@@ -25,6 +25,40 @@
 ****************************************************************************/
 #define FILTER_WRITER       0
 
+/***************************************************************************
+   필터 칩 SPI 포트 배정
+     0 : 필터1 = SPI20 (GD25D10_*)   , 필터2 = SPI21 (GD25D10_2_*)
+     1 : 필터1 = SPI21 (GD25D10_2_*) , 필터2 = SPI20 (GD25D10_*)   <- 포트 서로 바뀐 기판
+   필터 칩 접근은 아래 F1_* / F2_* 만 쓴다. 포트가 다시 바뀌어도 이 한 줄만 고치면 된다.
+****************************************************************************/
+#define FILTER_PORT_SWAP    1
+
+#if FILTER_PORT_SWAP
+#define F1_ReadID           GD25D10_2_ReadID
+#define F1_ReadUID          GD25D10_2_Read16Bytes_UID
+#define F1_Read16           GD25D10_2_Read16Bytes
+#define F1_ByteWrite        GD25D10_2_ByteWrite
+#define F1_Erase4K          GD25D10_2_EraseSector4K
+
+#define F2_ReadID           GD25D10_ReadID
+#define F2_ReadUID          GD25D10_Read16Bytes_UID
+#define F2_Read16           GD25D10_Read16Bytes
+#define F2_ByteWrite        GD25D10_ByteWrite
+#define F2_Erase4K          GD25D10_EraseSector4K
+#else
+#define F1_ReadID           GD25D10_ReadID
+#define F1_ReadUID          GD25D10_Read16Bytes_UID
+#define F1_Read16           GD25D10_Read16Bytes
+#define F1_ByteWrite        GD25D10_ByteWrite
+#define F1_Erase4K          GD25D10_EraseSector4K
+
+#define F2_ReadID           GD25D10_2_ReadID
+#define F2_ReadUID          GD25D10_2_Read16Bytes_UID
+#define F2_Read16           GD25D10_2_Read16Bytes
+#define F2_ByteWrite        GD25D10_2_ByteWrite
+#define F2_Erase4K          GD25D10_2_EraseSector4K
+#endif
+
 /* 치구에서 쓸 필터 값 (mL 단위 , 본체는 filter1_life 를 mL 로 다룬다)
    온수 / 정수 / 냉수 / 알칼리수 / 냉알칼리수 버튼 순 */
 #define FW_VAL_0         3000000    /* 온수       버튼 : 3000 L */
