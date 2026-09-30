@@ -63,6 +63,21 @@
 #define HOT_TEST_MODE       1
 #define HOT_TEST_PWM     1100    /* 주기 2000 기준. 필요하면 올린다 (최대 1999) */
 
+/***************************************************************************
+   밸브 · 펌프 수동 시험 모드 (배관 경로 확인용, 양산 시 반드시 0)
+     1 이면 HOT_TEST_MODE 보다 우선한다. 출수 로직을 전부 쓰지 않고
+     버튼으로 SOL1~SOL8 과 펌프를 하나씩 켜고 끈다. 히터는 항상 정지.
+
+       세정 버튼 : SOL 번호 선택 (1 -> 8 순환)
+       출수 버튼 : 선택한 SOL 토글 (열림 <-> 닫힘)
+       온수 버튼 : 펌프 토글
+       용량 버튼 : 전부 닫고 펌프 정지
+
+     화면  좌 3자리 : [선택SOL번호] [열림1/닫힘0] [펌프1/정지0]
+           우 3자리 : 입수 누적 mL 하위 3자리 (물이 움직이면 올라간다)
+****************************************************************************/
+#define VALVE_TEST_MODE     1
+
 #if FILTER_PORT_SWAP
 #define F1_ReadID           GD25D10_2_ReadID
 #define F1_ReadUID          GD25D10_2_Read16Bytes_UID
@@ -744,6 +759,7 @@ BYTE Filter_Write_1(ULONG v);
 BYTE Filter_Write_2(ULONG v);
 BYTE Fw_ErrCode(int8_t e);
 void Fw_Uid_Read(void);
+void Valve_Test_Apply(void);
 void Current_pid(void);
 void Cal_ion_i(void);
 

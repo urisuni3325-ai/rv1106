@@ -509,6 +509,13 @@ BYTE bCoolReadyFg = 0;
 
 uint32_t 	eep_data=0;
 
+#if VALVE_TEST_MODE
+// 밸브 · 펌프 수동 시험
+BYTE bVtSel  = 1;      // 선택 SOL 번호 1~8
+BYTE bVtSol  = 0;      // 열린 SOL 비트맵 (bit0 = SOL1 ... bit7 = SOL8)
+BYTE bVtPump = 0;      // 1 = 펌프 ON
+#endif
+
 #if FILTER_WRITER
 // 필터 칩 쓰기 치구
 const ULONG filter_wr_tbl[5] = { FW_VAL_0, FW_VAL_1, FW_VAL_2, FW_VAL_3, FW_VAL_4 };
@@ -997,6 +1004,29 @@ void PwmHotPump_out(WORD pwm_data)
     HAL_TIMER2n_Init(pConfig_HotPump->pTIMER2x, &TIMER20_Config);
     HAL_TIMER2n_Start(pConfig_HotPump->pTIMER2x);
 }
+#if VALVE_TEST_MODE
+// 밸브 · 펌프 수동 시험 : 비트맵을 실제 출력에 반영한다
+void Valve_Test_Apply(void)
+{
+	// SOL1(NOS) 은 매크로가 반대다 : SOL1_CLOSE 가 SetPin
+	if(bVtSol & 0x01)	SOL1_OPEN;	else	SOL1_CLOSE;
+	if(bVtSol & 0x02)	SOL2_ON;	else	SOL2_OFF;
+	if(bVtSol & 0x04)	SOL3_ON;	else	SOL3_OFF;
+	if(bVtSol & 0x08)	SOL4_ON;	else	SOL4_OFF;
+	if(bVtSol & 0x10)	SOL5_ON;	else	SOL5_OFF;
+	if(bVtSol & 0x20)	SOL6_ON;	else	SOL6_OFF;
+	if(bVtSol & 0x40)	SOL7_ON;	else	SOL7_OFF;
+	if(bVtSol & 0x80)	SOL8_ON;	else	SOL8_OFF;
+	
+	if(bVtPump)	PwmHotPump_out(HOT_TEST_PWM);
+	else		PwmHotPump_off();
+	
+	HEATER_OFF;
+	Pwm_off();
+	RELAY_OFF;
+}
+#endif
+
 void PwmCoolFan_off(void)
 {
 
@@ -1918,7 +1948,11 @@ void mainloop(void)
 
 			fcDisplay();
 			
-#if HOT_TEST_MODE
+#if VALVE_TEST_MODE
+			lError     = 0;                           // 수동 시험 모드 : 에러 판정 무시
+			serial_err = 0;
+			Valve_Test_Apply();
+#elif HOT_TEST_MODE
 			lError     = 0;                           // 온수 시험 모드 : 에러 판정 무시
 			serial_err = 0;
 #endif
@@ -2445,6 +2479,9 @@ void Flow_Hot_Pid(void)
 	long control_output ;
 	BYTE i;
 
+#if VALVE_TEST_MODE
+	return;                    // 수동 시험 모드 : 펌프는 Valve_Test_Apply 가 맡는다
+#endif
 #if HOT_TEST_MODE
 	// 온수 시험 모드 : PID 없이 고정 PWM 으로 계속 돌린다
 	if( s_mode == HOT_OUT )
@@ -2612,6 +2649,10 @@ void Flow_Hot_Pid(void)
 //100ms
 void Heater_Control(void)
 {
+#if VALVE_TEST_MODE
+	HEATER_OFF;
+	return;
+#endif
 #if HOT_TEST_MODE
 	// 온수 시험 모드 : 히터는 항상 정지
 	bHeaterFg      = 0;
@@ -3685,6 +3726,10 @@ void	Flow_in_check(void)
 **************************************************************************************************/
 void  Output_control(void)	//1sec -> 0.1
 {
+#if VALVE_TEST_MODE
+	return;                    // 수동 시험 모드 : 밸브는 Valve_Test_Apply 가 맡는다
+#endif
+
  	//if(filter_error==0 )	//error==0
 	{
 		if(m_state&0x80)   // 단수
@@ -5881,7 +5926,7 @@ void key_input(void)
 	uint16_t cur_sw;
 	BYTE ml_release_event = 0;
 	BYTE hot_release_event = 0;
-#if FILTER_WRITER
+#if (FILTER_WRITER || VALVE_TEST_MODE)
 	BYTE clean_release_event = 0;
 #else
 	//BYTE clean_release_event = 0;
@@ -5944,8 +5989,8 @@ void key_input(void)
 	}
 	else if ((cur_sw != TCH_CLEAN) && (clean_pressed != 0))
     {
-#if FILTER_WRITER
-        // 치구 : 세정 짧게 누름을 굽기 모드 순환에 쓴다 (본체는 3초 롱키만 사용)
+#if (FILTER_WRITER || VALVE_TEST_MODE)
+        // 치구 · 수동 시험 : 세정 짧게 누름을 쓴다 (본체는 3초 롱키만 사용)
         if (clean_long_sent == 0)
         {
             if (clean_hold_cnt >= KEY_CHATTERING)
@@ -5970,7 +6015,7 @@ void key_input(void)
 	
 	//-------------------------------------------------------------
 
-#if FILTER_WRITER
+#if (FILTER_WRITER || VALVE_TEST_MODE)
 	if (ml_release_event == 0  && (hot_release_event == 0) && (clean_release_event == 0))
 #else
 	if (ml_release_event == 0  && (hot_release_event == 0)) // &&( clean_release_event == 0)
@@ -6278,6 +6323,36 @@ void key_input(void)
 **************************************************************************************************/
 void Key_exe(void)
 {
+#if VALVE_TEST_MODE
+	switch(key_new)
+	{
+		case TCH_CLEAN :
+		case TCH_CLEAN_LONG :
+			if(++bVtSel > 8)	bVtSel = 1;               // SOL 번호 선택
+			break;
+		
+		case TCH_START :
+			bVtSol ^= (BYTE)(1 << (bVtSel - 1));          // 선택 SOL 토글
+			break;
+		
+		case TCH_HOT :
+		case TCH_HOT_LONG :
+			bVtPump ^= 1;                                 // 펌프 토글
+			break;
+		
+		case TCH_ML :
+		case TCH_ML_MAX :
+			bVtSol  = 0;	bVtPump = 0;                  // 전부 닫고 펌프 정지
+			break;
+		
+		default : break;
+	}
+	
+	Voice_output(SND_SELECT);
+	key_new = 0x00;
+	return;
+#endif
+
 #if FILTER_WRITER
 	switch(key_new)
 	{

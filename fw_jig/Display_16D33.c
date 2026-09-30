@@ -189,6 +189,9 @@ extern ULONG flow_hot_liter;
 extern int32_t wCoolTemper;
 extern ULONG lFlowSum_Out;
 extern ULONG lFlowSum_In;
+#if VALVE_TEST_MODE
+extern BYTE bVtSel, bVtSol, bVtPump;
+#endif
 extern ULONG lFlowSum_Hot;
 extern uint32_t lError;
 
@@ -1503,6 +1506,19 @@ void fcDisplay(void)
 	else{
 		Display_Flushing();
 	}
+
+#if VALVE_TEST_MODE
+	// 밸브 · 펌프 수동 시험
+	//  좌 : [선택SOL번호] [열림1/닫힘0] [펌프1/정지0]
+	//  우 : 입수 누적 mL 하위 3자리
+	DISP_SetDigitNum(0, (BYTE)(bVtSel % 10), 0);
+	DISP_SetDigitNum(1, (BYTE)((bVtSol >> (bVtSel - 1)) & 0x01), 0);
+	DISP_SetDigitNum(2, (BYTE)(bVtPump & 0x01), 0);
+	
+	DISP_SetDigitNum(3, (BYTE)(lFlowSum_In/100%10), 0);
+	DISP_SetDigitNum(4, (BYTE)(lFlowSum_In/10%10),  0);
+	DISP_SetDigitNum(5, (BYTE)(lFlowSum_In%10),     0);
+#endif
 
 #if FLOW_DEBUG_DISP
 	// 유량센서 확인용 : 출수 중 좌 = 입수 누적(PE5) , 우 = 온수 누적(PE7)
