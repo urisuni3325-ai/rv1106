@@ -1054,15 +1054,15 @@ void Flush_Pump_Duty(void)
 
 #if PRIME_MODE
 // 프라이밍 밸브 조합
-//  배기 : 코크(5SV)를 닫고 가스배기(7SV)와 배수(8SV)를 열어 공기를 뺀다.
-//         온수 출수의 맨 앞 0.7초 가스빼기 구간과 같은 조합이다.
+//  배기 : 5SV 를 열어야 펌프가 물을 밀 수 있다. 7SV(가스배기)와
+//         8SV(배수)를 같이 열어 공기를 뺀다.
 static void Prime_Valve_Vent(void)
 {
 	SOL1_OPEN;                        // 원수 유입
 	SOL2_OFF;	SOL3_OFF;	SOL4_OFF;
-	SOL5_OFF;                         // 코크 닫음
 	SOL6_OFF;
-	SOL7_ON;	SOL8_ON;              // 가스배기 열기
+	SOL5_ON;                          // 5SV 를 열어야 펌프가 돈다
+	SOL7_ON;	SOL8_ON;              // 가스배기 · 배수 열기
 }
 //  출수 : 코크로 실제로 물이 나오는지 확인한다.
 static void Prime_Valve_Out(void)
@@ -4719,9 +4719,9 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL2_OFF;
 						SOL3_OFF;
 						SOL4_OFF;
-						SOL5_OFF;
 						SOL6_OFF;					
 						
+						SOL5_ON;                 // 5SV 를 열어야 펌프가 물을 민다
 						SOL7_ON;
 						SOL8_ON;
 						
@@ -4746,9 +4746,9 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL2_OFF;
 						SOL3_OFF;
 						SOL4_OFF;
-						SOL5_OFF;
 						SOL6_OFF;
 						
+						SOL5_ON;                 // 5SV 를 열어야 펌프가 물을 민다
 						SOL7_ON;                 // 온수 배수
 						SOL8_ON;                 // 산성수 배수
 						
@@ -4761,9 +4761,9 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL2_OFF;
 						SOL3_OFF;
 						SOL4_OFF;
-						SOL5_OFF;
 						SOL6_OFF;
 						
+						SOL5_ON;                 // 5SV 를 열어야 펌프가 물을 민다
 						SOL7_ON;
 						SOL8_ON;
 						
