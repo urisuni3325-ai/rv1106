@@ -1165,7 +1165,7 @@ void Valve_Test_Apply(void)
 	if(bVtSol & 0x40)	SOL7_ON;	else	SOL7_OFF;
 	if(bVtSol & 0x80)	SOL8_ON;	else	SOL8_OFF;
 	
-	if(bVtPump)	PwmHotPump_out(HOT_TEST_PWM);
+	if(bVtPump)	PwmHotPump_out(VT_PUMP_PWM);
 	else		PwmHotPump_off();
 	
 	HEATER_OFF;
