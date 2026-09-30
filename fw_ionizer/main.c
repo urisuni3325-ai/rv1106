@@ -663,6 +663,8 @@ BYTE bPrimeStep  = 0;     // 0 대기 / 1 배기급수(펌프ON) / 2 배기급수(펌프OFF)
                           // 3 출수확인 / 8 실패 / 9 완료
 WORD wPrimeTick  = 0;
 BYTE bPrimeCycle = 0;
+BYTE bPrimeSns   = 3;     // 우측 표시 유량센서 3 = 온수입수(PE7) , 1 = 입수(PE5)
+BYTE bPrimeSnsCnt = 0;    // 바꾼 뒤 번호를 보여주는 타이머 (10ms)
 #endif
 WORD test=0;
 
@@ -2100,6 +2102,7 @@ void mainloop(void)
 #if PRIME_MODE
 			lError     = 0;                           // 프라이밍 모드 : 에러 판정 무시
 			serial_err = 0;
+			if(bPrimeSnsCnt)	bPrimeSnsCnt--;
 			
 			backlight_off_cnt = 0;
 			backlight_en_fg   = 1;
@@ -6600,8 +6603,15 @@ void Key_exe(void)
 			bPrimeCycle = 0;
 			break;
 		
+		case TCH_PURE :
+			// 우측 3자리에 보일 유량센서 : 3 온수입수(PE7) <-> 1 입수(PE5)
+			bPrimeSns    = (BYTE)((bPrimeSns == 3) ? 1 : 3);
+			bPrimeSnsCnt = 80;                        // 0.8초간 번호를 보여준다
+			break;
+		
 		case TCH_ALKALI :
 			lFlowSum_Hot = 0;	flow_hot_pulse_cnt = 0;   // 유량 0
+			lFlowSum_In  = 0;	flow_pulse_cnt     = 0;
 			break;
 		
 		default : break;
