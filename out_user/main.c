@@ -4964,6 +4964,19 @@ save_deact_show = DEACT_SHOW_DEF;
 /**************************************************************************************************
 		EEPROM 저장값 불러오기
 **************************************************************************************************/
+/**************************************************************************************************
+		자동세정 임계값 계산
+		  설정화면은 auto_clean_value 뒤에 0 을 붙여 표시하므로 화면 리터 = 설정값 x 10 이다.
+		  auto_clean_cnt 는 mL 로 쌓이므로 임계값도 mL 로 둔다.
+		  설정 1 은 시험용 특례로 1L 로 둔다 (기존 동작 그대로).
+		  계산이 세 곳에 흩어져 있어 한 군데만 고치면 어긋나므로 이 함수로 모은다.
+**************************************************************************************************/
+void Auto_Clean_Temp_Set(void)
+{
+	if(auto_clean_value == 1)	auto_temp = auto_clean_value * 1000L;    // 시험용 특례 : 1L
+	else						auto_temp = auto_clean_value * 10000L;   // 설정값 x 10 L
+}
+
 void  Set_value_call(BYTE bMode)
 {
 	volume_level = save_volume_level;
@@ -4997,8 +5010,7 @@ void  Set_value_call(BYTE bMode)
     con_deact_show = save_deact_show ;
 	
 	//???????????????????//
-	if(auto_clean_value==1)	auto_temp = auto_clean_value*1000L ;
-	else auto_temp =   (auto_clean_value*10000L);
+	Auto_Clean_Temp_Set();
 }
 
 void Set_value_temp(void)
@@ -5031,8 +5043,7 @@ void Set_value_temp(void)
     save_touch_sens    = con_touch_sens;    
 
 		//???????????????????//
-		if(auto_clean_value==1)	auto_temp = auto_clean_value*1000L ;
-		else auto_temp =   (auto_clean_value*10000L);
+		Auto_Clean_Temp_Set();
 }	
 
 /**************************************************************************************************
@@ -5047,6 +5058,11 @@ void Set_value_save(void)
 	language_jump = sound_lang_tbl[lang_level];	
 	
  	save_auto_clean_value = auto_clean_value;
+	
+	// 설정을 바꾸면 임계값도 바로 갱신한다.
+	//  이 줄이 없어서, 설정화면에는 바뀐 리터가 보이는데 실제 판정은
+	//  전원을 껐다 켜거나 설정모드에 다시 들어가기 전까지 이전 값으로 돌았다.
+	Auto_Clean_Temp_Set();
 
 
   	for(i=0;i<3;i++) {
@@ -5288,8 +5304,7 @@ if(save_deactivate > 100)                          save_deactivate = 20;
 	if(auto_clean_cnt>990000L || auto_clean_cnt < 1)	auto_clean_cnt	= 100; 
 	
 	//???????????????????//
-	if(auto_clean_value==1)	auto_temp = auto_clean_value*1000L ;
-	else auto_temp =   (auto_clean_value*10000L);
+	Auto_Clean_Temp_Set();
   
   Update_Color(con_brightness , con_deactivate);
   bl_phase = 0;     
