@@ -4930,8 +4930,9 @@ save_deact_show = DEACT_SHOW_DEF;
 		Buffer[ADD_GAIN_I_1] = I_GAIN_M ; 
 		Buffer[ADD_GAIN_I_2] = I_GAIN_M>>8 ; 
 
-		Buffer[ADD_AUTO_CLEAN_1] = save_auto_clean_value ; 
-		Buffer[ADD_AUTO_CLEAN_2] = save_auto_clean_value >>8 ; 
+		// 이 자리는 자동세정 누적량(L) 이다. 설정값을 쓰고 있었다.
+		Buffer[ADD_AUTO_CLEAN_1] = 0 ; 
+		Buffer[ADD_AUTO_CLEAN_2] = 0 ; 
 		
 		Buffer[ADD_UV_MIN_1] = save_uv_stop_time ; 
 		Buffer[ADD_UV_MIN_2] = save_uv_stop_time >>8 ; 
@@ -4971,6 +4972,18 @@ save_deact_show = DEACT_SHOW_DEF;
 		  설정 1 은 시험용 특례로 1L 로 둔다 (기존 동작 그대로).
 		  계산이 세 곳에 흩어져 있어 한 군데만 고치면 어긋나므로 이 함수로 모은다.
 **************************************************************************************************/
+// 자동세정 누적량을 L 단위로 바꾼다 (데이터 플래시에 2바이트로 저장하기 위함)
+//  mL 그대로 저장하면 65535mL = 65.5L 에서 잘려, 70L 이상 설정은 전원을
+//  껐다 켤 때마다 누적량이 엉뚱한 값으로 돌아왔다.
+WORD Auto_Clean_Cnt_L(void)
+{
+	ULONG l = auto_clean_cnt / 1000L;
+	
+	if(l > 65000L)	l = 65000L;      // 2바이트 범위 보호
+	
+	return (WORD)l;
+}
+
 void Auto_Clean_Temp_Set(void)
 {
 	if(auto_clean_value == 1)	auto_temp = auto_clean_value * 1000L;    // 시험용 특례 : 1L
@@ -5107,8 +5120,9 @@ void Set_value_save(void)
 	Buffer[ADD_GAIN_I_1] = I_GAIN_M ; 
 	Buffer[ADD_GAIN_I_2] = I_GAIN_M>>8 ; 
 
-	Buffer[ADD_AUTO_CLEAN_1] = auto_clean_cnt ; 
-	Buffer[ADD_AUTO_CLEAN_2] = auto_clean_cnt >>8 ; 
+	// 자동세정 누적은 L 단위로 저장한다
+	Buffer[ADD_AUTO_CLEAN_1] = (BYTE)( Auto_Clean_Cnt_L()       & 0xff) ; 
+	Buffer[ADD_AUTO_CLEAN_2] = (BYTE)((Auto_Clean_Cnt_L() >> 8) & 0xff) ; 
 	
 	Buffer[ADD_UV_MIN_1] = save_uv_stop_time ; 
 	Buffer[ADD_UV_MIN_2] = save_uv_stop_time >>8 ; 
@@ -5165,8 +5179,9 @@ void Set_Eep_Exe(void)
 	Buffer[ADD_GAIN_I_1] = I_GAIN_M ; 
 	Buffer[ADD_GAIN_I_2] = I_GAIN_M>>8 ; 
 
-	Buffer[ADD_AUTO_CLEAN_1] = auto_clean_cnt ; 
-	Buffer[ADD_AUTO_CLEAN_2] = auto_clean_cnt >>8 ; 
+	// 자동세정 누적은 L 단위로 저장한다
+	Buffer[ADD_AUTO_CLEAN_1] = (BYTE)( Auto_Clean_Cnt_L()       & 0xff) ; 
+	Buffer[ADD_AUTO_CLEAN_2] = (BYTE)((Auto_Clean_Cnt_L() >> 8) & 0xff) ; 
 
 	Buffer[ADD_UV_MIN_1] = save_uv_stop_time ; 
 	Buffer[ADD_UV_MIN_2] = save_uv_stop_time >>8 ; 
@@ -5297,11 +5312,15 @@ if(save_deactivate > 100)                          save_deactivate = 20;
 
 	r_data = 	*(volatile uint32_t*)(START_ADDR + ADD_GAIN_I_1);	
 	I_GAIN_M =r_data&0xffff;
-	auto_clean_cnt = (r_data>>16)&0xffff;
+	auto_clean_cnt = (ULONG)((r_data>>16)&0xffff) * 1000L;   // L 로 저장했으므로 mL 로 되돌린다
 
 	if(I_GAIN_M > 580 || I_GAIN_M < 720)	I_GAIN_M = 660;//  260223
 
-	if(auto_clean_cnt>990000L || auto_clean_cnt < 1)	auto_clean_cnt	= 100; 
+	// 범위를 벗어나면 0 으로 둔다.
+	//  설정 최대가 100L 이므로 정상값은 100000mL 언저리를 넘지 않는다.
+	//  mL 로 저장하던 이전 펌웨어의 값을 읽으면 1000배가 되어 여기서 걸러진다.
+	//  0 은 세정 직후의 정상값이라 예전처럼 100 으로 올리지 않는다.
+	if(auto_clean_cnt > 120000L)	auto_clean_cnt = 0; 
 	
 	//???????????????????//
 	Auto_Clean_Temp_Set();
