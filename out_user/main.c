@@ -59,6 +59,15 @@ static unsigned char Buffer[BufferSize];
 #define START_DELAY_TICK   10    // 100ms x 10 = 1초
 void Start_Delay_Check(void);
 
+// 정지(단수) 구간 시간 . Output_control() 은 100ms 마다 돈다
+//  CLEAN_TIME    : 후세정(역극성) 구간 . 알칼리 / 냉알칼리 / PH 설정
+//  PURGE_TIME    : 압력만 빼고 끝나는 모드 . 정수 / 냉수
+//                  이 두 모드에는 퍼지 종료 분기(ion_stop_cnt==3)가 없어서
+//                  CLEAN_TIME 을 쓰면 6,7,8 이 그 시간만큼 열린 채로 있었다.
+//  HOT_STOP_TIME : 온수 관로 배수
+#define PURGE_TIME          3    // 0.3초
+#define HOT_STOP_TIME     152    // 15.2초
+
 
 //	전류 테이블 _ PI 제어시 사용되는 목표치
 /*#if SMPS_TYPE == 0	//180629 0:전해조5P
@@ -3801,6 +3810,12 @@ void  Output_control(void)	//1sec -> 0.1
 					}
 					else if(ion_stop_cnt==20) //20=2초후
 					{
+						// 전류가 흐르는 채로 릴레이를 전환하면 접점이 상한다.
+						//  한 틱만 끄고 다음 100ms 에 Current_pid() 가 새 극성으로 다시 올린다.
+						Pwm_off();
+						pi_value    = 0;
+						error_0_old = 0;
+						
 						RELAY_ON;           		// 극성 on
 						
 						SOL3_ON;
@@ -3853,6 +3868,12 @@ void  Output_control(void)	//1sec -> 0.1
 					}
 					else if(ion_stop_cnt==20) //2초후
 					{
+						// 전류가 흐르는 채로 릴레이를 전환하면 접점이 상한다.
+						//  한 틱만 끄고 다음 100ms 에 Current_pid() 가 새 극성으로 다시 올린다.
+						Pwm_off();
+						pi_value    = 0;
+						error_0_old = 0;
+						
 						RELAY_ON;           		// 산성수 출수
 						SOL2_ON;
 						SOL6_ON;
@@ -3883,7 +3904,7 @@ void  Output_control(void)	//1sec -> 0.1
 					break;  
 				case PURE :             				// 정수
 						
-					if(++ion_stop_cnt >= CLEAN_TIME)             // 0.2초 퍼지 완료
+					if(++ion_stop_cnt >= PURGE_TIME)             // 퍼지 완료
 					{
 						after_clean_fg = 0;
 
@@ -3920,7 +3941,7 @@ void  Output_control(void)	//1sec -> 0.1
 					break;
 				case COOL:
 
-						 if(++ion_stop_cnt >= CLEAN_TIME)             // 0.2초 퍼지 완료
+						 if(++ion_stop_cnt >= PURGE_TIME)             // 퍼지 완료
 						{
 							after_clean_fg = 0;
 
@@ -3957,7 +3978,7 @@ void  Output_control(void)	//1sec -> 0.1
 					break;	
 				case HOT:
 
-					if(++wHot_stop_cnt>= 152) {// 15sec
+					if(++wHot_stop_cnt>= HOT_STOP_TIME) {// 15sec
 							SOL5_OFF;
 							
 							SOL6_OFF;
@@ -6979,6 +7000,17 @@ void Key_action(void)
 			break;
 	  		default :
 	  	      break;
+	  	}
+	  	
+	  	// 단수(후세정)에서 바로 출수로 넘어가면 전해조 극성이 뒤집힌다.
+	  	//  Output_control() 이 RELAY_OFF 를 하기 전에 PWM 을 먼저 끊는다.
+	  	//  알칼리 출수 분기에서 Pwm_off() 를 상시 호출하면 출수 자체가 안 되므로
+	  	//  전환하는 이 순간에만 한 번 끈다.
+	  	if(m_state & 0x80)
+	  	{
+	  		Pwm_off();
+	  		pi_value    = 0;
+	  		error_0_old = 0;
 	  	}
 	  	
 	  	m_state &= 0x7f;   	// 단수 동작 정지
