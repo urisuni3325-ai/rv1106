@@ -58,7 +58,6 @@ static unsigned char Buffer[BufferSize];
 //  1초가 되기 전에 다시 누르면 출수를 하지 않고 카운트도 지운다.
 #define START_DELAY_TICK   10    // 100ms x 10 = 1초
 void Start_Delay_Check(void);
-BYTE Voice_out_mode(WORD mode);
 
 // 정지(단수) 구간 시간 . Output_control() 은 100ms 마다 돈다
 //  CLEAN_TIME    : 후세정(역극성) 구간 . 알칼리 / 냉알칼리 / PH 설정
@@ -660,8 +659,6 @@ WORD wFlushingCnt=0;
 // 출수 시작 지연
 BYTE bStartDelayFg  = 0;   // 1 = 출수 시작을 기다리는 중
 BYTE bStartDelayCnt = 0;   // 100ms 카운트
-BYTE bStartVoiceFg  = 0;   // 1 = 키 누를 때 안내 음성을 이미 냈다
-BYTE bVoiceMuteFg   = 0;   // 1 = Voice_output() 을 잠시 막는다
 WORD test=0;
 
 uint32_t lDispenseTick = 0;      // 연속 출수 시간 카운트
@@ -6242,7 +6239,6 @@ void Key_exe(void)
 	{
 		bStartDelayFg  = 0;
 		bStartDelayCnt = 0;
-		bStartVoiceFg  = 0;
 	}
 	
   	switch(key_new)
@@ -6681,9 +6677,6 @@ void Key_exe(void)
 				{
 					bStartDelayFg  = 1;        // 1초 뒤에 출수 시작
 					bStartDelayCnt = 0;
-					
-					// 안내 음성은 기다리지 않고 바로 낸다
-					bStartVoiceFg  = Voice_out_mode((WORD)(s_mode ^ 0x800));
 				}
 			}
       	break;
@@ -6787,51 +6780,6 @@ void Key_exe(void)
 		  출수 버튼을 누르면 바로 나가지 않고 1초 뒤에 Key_action() 을 부른다.
 		  기다리는 동안 키가 눌리면 Key_exe() 가 취소하고 카운트를 지운다.
 **************************************************************************************************/
-/**************************************************************************************************
-		출수 시작 안내 음성
-		  출수를 1초 늦추면 안내 음성도 1초 늦게 나와 버튼이 안 먹은 것처럼 느껴진다.
-		  그래서 음성만 키를 누르는 즉시 내보내고, 1초 뒤의 Key_action() 에서는
-		  같은 음성을 다시 내지 않도록 막는다.
-		  mode 는 Key_action() 이 토글한 뒤의 s_mode 값이다.
-		  반환 1 = 음성을 냈다 (이 경우에만 Key_action 의 음성을 막는다)
-**************************************************************************************************/
-BYTE Voice_out_mode(WORD mode)
-{
-	// Key_action() 이 s_mode 를 다시 손보는 경우는 그대로 둔다.
-	//  여기서 음성을 미리 내면 실제로 들어갈 모드와 어긋난다.
-	if(first_clean_en_fg)				return 0;
-	if(bFlushingEnd)					return 0;
-	if(lError & ERR_DISPENSE_STOP)		return 0;
-	
-	switch(mode)
-	{
-		case ALKA1_OUT :		Voice_output(SND_ALKA1+language_jump);		break;
-		case ALKA2_OUT :		Voice_output(SND_ALKA2+language_jump);		break;
-		case ALKA3_OUT :		Voice_output(SND_ALKA3+language_jump);		break;
-		
-		case COOLALKA1_OUT :	Voice_output(SND_COOLALKA1+language_jump);	break;
-		case COOLALKA2_OUT :	Voice_output(SND_COOLALKA2+language_jump);	break;
-		case COOLALKA3_OUT :	Voice_output(SND_COOLALKA3+language_jump);	break;
-		
-		case HOT_OUT :			Voice_output(SND_HOT+language_jump);			break;
-		case PURE_OUT :			Voice_output(SND_PURE+language_jump);		break;
-		case COOL_OUT :			Voice_output(SND_COOL+language_jump);		break;
-		
-		case ION_OUT1 :
-		case ION_OUT2 :
-			if     (ion_state==1)	Voice_output(SND_ALKA1+language_jump);
-			else if(ion_state==2)	Voice_output(SND_ALKA2+language_jump);
-			else if(ion_state==3)	Voice_output(SND_ALKA3+language_jump);
-			else					return 0;
-			break;
-		
-		// 세정 · 플러싱 · 캘리브레이션은 Key_action() 이 조건을 더 보므로 건드리지 않는다
-		default :				return 0;
-	}
-	
-	return 1;
-}
-
 void Start_Delay_Check(void)
 {
 	if(!bStartDelayFg)
@@ -6845,7 +6793,6 @@ void Start_Delay_Check(void)
 	{
 		bStartDelayFg  = 0;
 		bStartDelayCnt = 0;
-		bStartVoiceFg  = 0;
 		return;
 	}
 	
@@ -6854,7 +6801,6 @@ void Start_Delay_Check(void)
 	{
 		bStartDelayFg  = 0;
 		bStartDelayCnt = 0;
-		bStartVoiceFg  = 0;
 		return;
 	}
 	
@@ -6863,13 +6809,8 @@ void Start_Delay_Check(void)
 		bStartDelayFg  = 0;
 		bStartDelayCnt = 0;
 		
-		// 안내 음성은 키를 누를 때 이미 냈으므로 여기서는 막는다
-		bVoiceMuteFg = bStartVoiceFg;
-		
 		Key_action();           // 여기서 실제로 출수를 시작한다
-		
-		bVoiceMuteFg  = 0;
-		bStartVoiceFg = 0;
+		                        //  안내 음성도 Key_action 안에서 같이 나온다
 	}
 }
 
@@ -8218,9 +8159,6 @@ void Set_Hardware_Volume(BYTE level) {
 }
 void Voice_output(BYTE Voice_val)
 {      
-	// 출수 시작 지연 : 안내 음성을 키 누를 때 이미 냈으면 여기서는 건너뛴다
-	if(bVoiceMuteFg)	return;
-	
   	sound_out_fg = 1;
 	
 	
