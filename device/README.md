@@ -39,6 +39,12 @@ cd /root/scripts
 
 자세한 내용은 [docs/board-setup.md](../docs/board-setup.md) 를 보세요.
 
+## aura-usbcam/ — Luckfox Aura + USB 카메라
+
+Luckfox Aura(RV1126B, Debian 13)에 꽂은 USB 카메라 영상을 H.264 RTSP
+(`rtsp://<보드IP>:554/live/0`)로 내보냅니다. 안드로이드 앱에 보드 IP 만 넣으면 됩니다.
+설치와 사용법은 [aura-usbcam/README.md](aura-usbcam/README.md) 를 보세요.
+
 ## af/ — 오토포커스
 
 `device/af/` 에 VCM 오토포커스 도구가 있습니다. 커널을 다시 빌드하지 않고

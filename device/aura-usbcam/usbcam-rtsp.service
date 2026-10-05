@@ -1,0 +1,15 @@
+[Unit]
+Description=USB camera RTSP server (rtsp://<board-ip>:554/live/0)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# 옵션은 /etc/default/usbcam-rtsp 의 USBCAM_ARGS 로 바꾼다 (예: --bitrate 6000)
+EnvironmentFile=-/etc/default/usbcam-rtsp
+ExecStart=/usr/bin/python3 /opt/usbcam/usbcam_rtsp.py $USBCAM_ARGS
+# 카메라가 빠져 있으면 종료되므로, 꽂을 때까지 3초마다 다시 시도한다
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
