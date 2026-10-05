@@ -6232,8 +6232,14 @@ void Key_exe(void)
 	
 	// 어떤 키가 눌리든 출수 시작 대기는 먼저 취소한다.
 	//  대기 중에 모드를 바꾸고 1초 뒤에 그 모드로 출수가 시작되면 안 된다.
-	bStartDelayFg  = 0;
-	bStartDelayCnt = 0;
+	//  Key_exe() 는 키가 없어도 10ms 마다 불린다. key_new 를 보지 않고
+	//  지우면 대기 플래그가 세워지자마자 다음 호출에서 지워져
+	//  Start_Delay_Check() 가 영영 1초를 못 채운다. 즉 출수가 안 된다.
+	if(key_new)
+	{
+		bStartDelayFg  = 0;
+		bStartDelayCnt = 0;
+	}
 	
   	switch(key_new)
   	{
