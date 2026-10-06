@@ -1986,10 +1986,12 @@ void mainloop(void)
 			byTimer10msFg = 0;
 						
 
-			fcDisplay();
-			
 #if CHIP_DIAG_MODE
-			lError     = 0;                           // 진단 모드 : 에러 표시가 화면을 가리지 않게
+			// 진단 모드에서는 fcDisplay() 를 부르지 않는다.
+			//  부르면 평소 화면이 HT16D33_Update() 로 한 번 전송되고, 그 뒤에
+			//  진단 숫자가 다시 전송된다. 10ms 마다 두 화면이 번갈아 나가서
+			//  눈에는 두 숫자가 겹쳐 보인다 (0 과 8 이 겹쳐 8 로 보이는 식).
+			lError     = 0;                           // 에러 처리가 끼어들지 않게
 			serial_err = 0;
 			
 			backlight_off_cnt = 0;
@@ -2001,7 +2003,9 @@ void mainloop(void)
 				Chip_Diag_Read();                     // 칩을 바꿔 끼우면 바로 반영된다
 			}
 			
-			Chip_Diag_Disp();                         // fcDisplay 결과를 덮어쓴다
+			Chip_Diag_Disp();                         // 화면은 이것만 그린다
+#else
+			fcDisplay();
 #endif
 			
 #if FILTER_WRITER
@@ -6899,8 +6903,9 @@ void Chip_Diag_Read(void)
 }
 
 /**************************************************************************************************
-		필터 칩 진단 : 화면 덮어쓰기
-		  fcDisplay() 가 HT16D33_Update() 까지 끝낸 뒤에 불러서 자리만 바꿔 다시 보낸다.
+		필터 칩 진단 : 화면
+		  진단 모드에서는 fcDisplay() 대신 이 함수만 화면을 그린다.
+		  두 함수가 같이 돌면 10ms 마다 번갈아 전송되어 숫자가 겹쳐 보인다.
 **************************************************************************************************/
 void Chip_Diag_Disp(void)
 {
