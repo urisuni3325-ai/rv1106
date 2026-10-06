@@ -6891,7 +6891,7 @@ void Chip_Diag_Read(void)
 	
 	F1_ReadUID(0, uid);
 	
-	// 음수 코드를 화면에 쓰기 좋게 양수로
+	// 코드는 전부 양수다 (FERR_*). 혹시 음수가 들어오면 부호만 뒤집는다.
 	bDiagErr = (BYTE)((e < 0) ? -e : e);
 	
 	for(i=0;i<16;i++)	sum += uid[i];
@@ -7659,15 +7659,10 @@ void Fw_Uid_Read(void)
 // last_load_err -> 화면 표시용 2자리 코드로 변환
 BYTE Fw_ErrCode(int8_t e)
 {
-	if(e ==   0)	return  0;
-	if(e == -12)	return 12;      // 칩 미연결 / 하네스 불량
-	if(e == -11)	return 11;      // 빈 칩 : 기록이 안 됨
-	if(e ==  -1)	return  1;      // 키 불일치
-	if(e ==  -3)	return  3;      // CRC 손상
-	if(e ==  -4)	return  4;      // 값 범위 초과
-	if(e ==  -5)	return  5;      // chip_id 불일치
+	// 코드는 이제 전부 양수다. 혹시 음수가 들어오면 부호만 뒤집는다.
+	if(e < 0)	return (BYTE)(-e);
 	
-	return 8;                       // 미정의
+	return (BYTE)e;
 }
 
 // 필터 1 쓰기 : 0 = 성공 , 그외 = 원인 코드
@@ -7937,7 +7932,7 @@ void	Filter_life_check(void)         // 점검 기능
 		read_f1_ex_life =  LoadFilter(ADDR_F1); // Eeprom_ex_load(1);
 		//f1_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
 
-		if( (last_load_err1 == -1) && IsFilterSwapped(1) )
+		if( (last_load_err1 == FERR_KEY) && IsFilterSwapped(1) )
 		{
 			// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
 			if(++f1_read_error_cnt>ERROR_CNT)
@@ -7946,7 +7941,7 @@ void	Filter_life_check(void)         // 점검 기능
 				Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
 			}
 		}
-		else if( (last_load_err1 == -1) || (last_load_err1 == -5) )
+		else if( (last_load_err1 == FERR_KEY) || (last_load_err1 == FERR_CHIPID) )
 		{
 			// 키 불일치 / chip_id 불일치 : 위조 · 다른 키로 쓴 칩
 			if(++f1_read_error_cnt>ERROR_CNT)
@@ -8026,7 +8021,7 @@ void	Filter_life_check(void)         // 점검 기능
 		
 		read_f2_ex_life =  LoadFilter_2(ADDR_F2); // Eeprom_ex_load(2);
 		//f2_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
-		if( (last_load_err2 == -1) && IsFilterSwapped(2) )
+		if( (last_load_err2 == FERR_KEY) && IsFilterSwapped(2) )
 		{
 			// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
 			if(++f2_read_error_cnt>ERROR_CNT)
@@ -8035,7 +8030,7 @@ void	Filter_life_check(void)         // 점검 기능
 				Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
 			}
 		}
-		else if( (last_load_err2 == -1) || (last_load_err2 == -5) )
+		else if( (last_load_err2 == FERR_KEY) || (last_load_err2 == FERR_CHIPID) )
 		{
 			// 키 불일치 / chip_id 불일치 : 위조 · 다른 키로 쓴 칩
 			if(++f2_read_error_cnt>ERROR_CNT)
@@ -8145,7 +8140,7 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
   read_f1_ex_life = LoadFilter(ADDR_F1); //  Eeprom_ex_load(1);				//080507_4 필터교체시 초기값 읽기
   
   // 키 불일치 / chip_id 불일치는 UID 읽기 실패일 수도 있으므로 1회 재시도
-	if( (last_load_err1 == -12) || (last_load_err1 == -1) || (last_load_err1 == -5) )
+	if( (last_load_err1 == FERR_NOCHIP) || (last_load_err1 == FERR_KEY) || (last_load_err1 == FERR_CHIPID) )
 	{
 		LoadFilter1_Init();
 		delay_1ms(2);
@@ -8156,7 +8151,7 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	wF1_life_old = (WORD)filter1_life/1000; //260223
 
 
-	if(last_load_err1 == -12)
+	if(last_load_err1 == FERR_NOCHIP)
 	{
 		// 칩 미연결 / 하네스 불량 -> 읽기 오류
 		if(++byF1_life_err_cnt>ERROR_CNT) {
@@ -8164,7 +8159,7 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 			Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
 		}
 	}
-	else if( (last_load_err1 == -1) && IsFilterSwapped(1) )
+	else if( (last_load_err1 == FERR_KEY) && IsFilterSwapped(1) )
 	{
 		// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
 		if(++byF1_life_err_cnt>ERROR_CNT) {
@@ -8172,7 +8167,7 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 			Filter_Err_Set(F1_ERR_MASK, 0x04);    // -> E01
 		}
 	}
-	else if( (last_load_err1 == -1) || (last_load_err1 == -5) )
+	else if( (last_load_err1 == FERR_KEY) || (last_load_err1 == FERR_CHIPID) )
 	{
 		// 키 불일치 또는 chip_id 불일치 : 위조 / 다른 키로 쓴 칩
 		if(++byF1_life_err_cnt>ERROR_CNT) {
@@ -8238,7 +8233,7 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
  	read_f2_ex_life =LoadFilter_2(ADDR_F2); //  Eeprom_ex_load(2);				//080507_4 필터교체시 초기값 읽기
   
   // 키 불일치 / chip_id 불일치는 UID 읽기 실패일 수도 있으므로 1회 재시도
-	if( (last_load_err2 == -12) || (last_load_err2 == -1) || (last_load_err2 == -5) )
+	if( (last_load_err2 == FERR_NOCHIP) || (last_load_err2 == FERR_KEY) || (last_load_err2 == FERR_CHIPID) )
 	{
 		LoadFilter2_Init();
 		delay_1ms(5);
@@ -8249,7 +8244,7 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
   filter2_life = read_f2_ex_life;					//080507_4 필터교체시 초기값 읽기
 	wF2_life_old = (WORD)filter2_life/1000; //260223
 	
-	if(last_load_err2 == -12)
+	if(last_load_err2 == FERR_NOCHIP)
 	{
 		// 칩 미연결 / 하네스 불량 -> 읽기 오류
 		if(++byF2_life_err_cnt>ERROR_CNT) {
@@ -8257,7 +8252,7 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 			Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
 		}
 	}
-	else if( (last_load_err2 == -1) && IsFilterSwapped(2) )
+	else if( (last_load_err2 == FERR_KEY) && IsFilterSwapped(2) )
 	{
 		// 정품 칩이 반대 소켓에 끼워졌다 -> 위조가 아니라 읽기 오류로 알린다
 		if(++byF2_life_err_cnt>ERROR_CNT) {
@@ -8265,7 +8260,7 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 			Filter_Err_Set(F2_ERR_MASK, 0x08);    // -> E02
 		}
 	}
-	else if( (last_load_err2 == -1) || (last_load_err2 == -5) )
+	else if( (last_load_err2 == FERR_KEY) || (last_load_err2 == FERR_CHIPID) )
 	{
 		// 키 불일치 또는 chip_id 불일치 : 위조 / 다른 키로 쓴 칩
 		if(++byF2_life_err_cnt>ERROR_CNT) {
