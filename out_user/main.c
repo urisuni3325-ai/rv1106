@@ -59,6 +59,36 @@ static unsigned char Buffer[BufferSize];
 #define START_DELAY_TICK   10    // 100ms x 10 = 1초
 void Start_Delay_Check(void);
 
+/****************************************************************************
+   필터 칩 진단 화면
+     0 = 사용 안 함 , 1 = 사용 (서비스용. 출하 펌웨어는 반드시 0)
+
+     타사 칩이나 위조 칩을 꽂았을 때 어느 단계에서 통과하는지 눈으로 본다.
+     에러 표시는 6초를 기다려야 뜨고 원인도 E01/E03 두 가지로만 뭉뚱그려지는데,
+     이 화면은 500ms 마다 다시 읽어 원인 코드를 그대로 보여준다.
+
+     세정 버튼 : 필터1 <-> 필터2
+     용량 버튼 : 페이지 1 -> 2 -> 3 -> 4 -> 1
+     출수 버튼 : 지금 바로 다시 읽기
+
+     화면  좌 3자리 : [페이지] [채널] [소등]
+           우 3자리 : 페이지별 값
+
+       페이지 1 : JEDEC 제조사 ID (10진수). GigaDevice 정품이면 200 (0xC8)
+       페이지 2 : 읽기 결과 코드
+                   0 정상 / 1 키 불일치 / 3 CRC / 4 범위 초과
+                   5 chip_id 불일치 / 11 빈 칩 / 12 미연결·제조사 불일치
+       페이지 3 : UID 16바이트 합 % 1000 (칩마다 달라야 한다)
+       페이지 4 : 복호화된 잔량 (L)
+****************************************************************************/
+#define CHIP_DIAG_MODE      0
+#define CHIP_DIAG_TICK     50    // 다시 읽는 주기 10ms x 50 = 500ms
+
+#if CHIP_DIAG_MODE
+void Chip_Diag_Read(void);
+void Chip_Diag_Disp(void);
+#endif
+
 // 정지(단수) 구간 시간 . Output_control() 은 100ms 마다 돈다
 //  CLEAN_TIME    : 후세정(역극성) 구간 . 알칼리 / 냉알칼리 / PH 설정
 //  PURGE_TIME    : 압력만 빼고 끝나는 모드 . 정수 / 냉수
@@ -659,6 +689,17 @@ WORD wFlushingCnt=0;
 // 출수 시작 지연
 BYTE bStartDelayFg  = 0;   // 1 = 출수 시작을 기다리는 중
 BYTE bStartDelayCnt = 0;   // 100ms 카운트
+
+#if CHIP_DIAG_MODE
+// 필터 칩 진단 화면
+BYTE  bDiagCh    = 1;      // 보고 있는 채널 1 / 2
+BYTE  bDiagPage  = 1;      // 페이지 1 ~ 4
+BYTE  bDiagMid   = 0;      // JEDEC 제조사 ID
+BYTE  bDiagErr   = 0;      // 읽기 결과 코드 (양수로 바꾼 값)
+WORD  wDiagUid   = 0;      // UID 16바이트 합 % 1000
+ULONG lDiagLife  = 0;      // 복호화된 잔량 (mL)
+BYTE  bDiagRdCnt = 0;      // 다시 읽기 주기 카운터
+#endif
 WORD test=0;
 
 uint32_t lDispenseTick = 0;      // 연속 출수 시간 카운트
@@ -1937,6 +1978,22 @@ void mainloop(void)
 						
 
 			fcDisplay();
+			
+#if CHIP_DIAG_MODE
+			lError     = 0;                           // 진단 모드 : 에러 표시가 화면을 가리지 않게
+			serial_err = 0;
+			
+			backlight_off_cnt = 0;
+			backlight_en_fg   = 1;
+			
+			if(++bDiagRdCnt >= CHIP_DIAG_TICK)
+			{
+				bDiagRdCnt = 0;
+				Chip_Diag_Read();                     // 칩을 바꿔 끼우면 바로 반영된다
+			}
+			
+			Chip_Diag_Disp();                         // fcDisplay 결과를 덮어쓴다
+#endif
 			
 #if FILTER_WRITER
 			lError     = 0;                           // 치구 모드 : 에러로 키가 막히지 않게
@@ -5840,8 +5897,8 @@ void key_input(void)
 	}
 	else if ((cur_sw != TCH_CLEAN) && (clean_pressed != 0))
     {
-#if FILTER_WRITER
-        // 치구 : 세정 짧게 누름을 굽기 모드 순환에 쓴다 (본체는 3초 롱키만 사용)
+#if (FILTER_WRITER || CHIP_DIAG_MODE)
+        // 치구 · 진단 : 세정 짧게 누름을 쓴다 (본체는 3초 롱키만 사용)
         if (clean_long_sent == 0)
         {
             if (clean_hold_cnt >= KEY_CHATTERING)
@@ -5866,7 +5923,7 @@ void key_input(void)
 	
 	//-------------------------------------------------------------
 
-#if FILTER_WRITER
+#if (FILTER_WRITER || CHIP_DIAG_MODE)
 	if (ml_release_event == 0  && (hot_release_event == 0) && (clean_release_event == 0))
 #else
 	if (ml_release_event == 0  && (hot_release_event == 0)) // &&( clean_release_event == 0)
@@ -6113,6 +6170,16 @@ void key_input(void)
 
 	if((key_value) &&( old_key_value==0) )
 	{
+#if CHIP_DIAG_MODE
+		// 진단 모드 : 키를 막는 조건을 건너뛴다
+		//  1) 플러싱 모드이면 모든 키가 죽는다
+		//  2) 백라이트가 꺼져 있으면 출수키 첫 누름이 삼켜진다
+		backlight_off_cnt = 0;
+		backlight_en_fg   = 1;
+		key_new = key_value;
+		old_key_value = key_value;
+		return;
+#endif
 		if( (s_mode&0x7ff) !=FLUSHING){
 			
 			if( (backlight_en_fg==0 ) && (key_value == TCH_START)){// && ( first_clean_en_fg==0)){ //대기모드->동작버튼 누르면
@@ -6174,10 +6241,37 @@ void key_input(void)
 **************************************************************************************************/
 void Key_exe(void)
 {
+
 	BYTE bRunFg;      // 키를 받은 시점에 출수 중이었는지
 	BYTE bDlyFg;      // 키를 받은 시점에 출수 시작을 기다리는 중이었는지
 	BYTE bImmFg;      // 1 = 지연 없이 바로 Key_action() 을 불러야 하는 경우
 	
+#if CHIP_DIAG_MODE
+	switch(key_new)
+	{
+		case TCH_CLEAN :
+		case TCH_CLEAN_LONG :
+			bDiagCh    = (BYTE)((bDiagCh == 1) ? 2 : 1);   // 필터1 <-> 필터2
+			bDiagRdCnt = CHIP_DIAG_TICK;                   // 바로 다시 읽기
+			break;
+		
+		case TCH_ML :
+		case TCH_ML_MAX :
+			if(++bDiagPage > 4)	bDiagPage = 1;             // 페이지 순환
+			break;
+		
+		case TCH_START :
+			bDiagRdCnt = CHIP_DIAG_TICK;                   // 지금 바로 다시 읽기
+			break;
+		
+		default : break;
+	}
+	
+	Voice_output(SND_SELECT);
+	key_new = 0x00;
+	return;
+#endif
+
 #if FILTER_WRITER
 	switch(key_new)
 	{
@@ -6780,6 +6874,76 @@ void Key_exe(void)
 		  출수 버튼을 누르면 바로 나가지 않고 1초 뒤에 Key_action() 을 부른다.
 		  기다리는 동안 키가 눌리면 Key_exe() 가 취소하고 카운트를 지운다.
 **************************************************************************************************/
+#if CHIP_DIAG_MODE
+/**************************************************************************************************
+		필터 칩 진단 : 선택한 채널을 처음부터 다시 읽는다
+**************************************************************************************************/
+void Chip_Diag_Read(void)
+{
+	uint8_t uid[16];
+	uint8_t i;
+	WORD    sum = 0;
+	int8_t  e;
+	
+	if(bDiagCh == 1)
+	{
+		LoadFilter1_Init();                  // JEDEC 확인 + UID 로 AES 키 재유도
+		delay_1ms(1);
+		
+		lDiagLife = LoadFilter(ADDR_F1);     // 읽기 + 복호화 + 검증
+		e         = last_load_err1;
+		bDiagMid  = bJedecMid1;
+		
+		F1_ReadUID(0, uid);
+	}
+	else
+	{
+		LoadFilter2_Init();
+		delay_1ms(1);
+		
+		lDiagLife = LoadFilter_2(ADDR_F2);
+		e         = last_load_err2;
+		bDiagMid  = bJedecMid2;
+		
+		F2_ReadUID(0, uid);
+	}
+	
+	// 음수 코드를 화면에 쓰기 좋게 양수로
+	bDiagErr = (BYTE)((e < 0) ? -e : e);
+	
+	for(i=0;i<16;i++)	sum += uid[i];
+	wDiagUid = sum % 1000;
+}
+
+/**************************************************************************************************
+		필터 칩 진단 : 화면 덮어쓰기
+		  fcDisplay() 가 HT16D33_Update() 까지 끝낸 뒤에 불러서 자리만 바꿔 다시 보낸다.
+**************************************************************************************************/
+void Chip_Diag_Disp(void)
+{
+	WORD v;
+	
+	switch(bDiagPage)
+	{
+		case 1 :	v = (WORD)bDiagMid;				break;   // 제조사 ID (10진수)
+		case 2 :	v = (WORD)bDiagErr;				break;   // 읽기 결과 코드
+		case 3 :	v = wDiagUid;					break;   // UID 합
+		default:	v = (WORD)(lDiagLife / 1000L);	break;   // 잔량 (L)
+	}
+	if(v > 999)	v = 999;
+	
+	DISP_SetDigitNum(0, (BYTE)(bDiagPage % 10), 0);
+	DISP_SetDigitNum(1, (BYTE)(bDiagCh % 10),   0);
+	DISP_SetDigitNum(2, FONT_BLANK,             0);
+	
+	DISP_SetDigitNum(3, (BYTE)(v/100%10), 0);
+	DISP_SetDigitNum(4, (BYTE)(v/10%10),  0);
+	DISP_SetDigitNum(5, (BYTE)(v%10),     0);
+	
+	HT16D33_Update();
+}
+#endif
+
 void Start_Delay_Check(void)
 {
 	if(!bStartDelayFg)
