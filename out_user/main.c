@@ -7964,6 +7964,16 @@ void	Filter_life_check(void)         // 점검 기능
 				Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
 			}
 		}
+		else if( last_load_err1 == FERR_EMPTY )
+		{
+			// 빈 칩 : 정품 필터는 치구로 구워 출하하므로 현장에 빈 칩이
+			//  꽂혔다는 것은 정품이 아니라는 뜻이다 -> 위조로 본다
+			if(++f1_read_error_cnt>ERROR_CNT)
+			{
+				f1_read_error_cnt = 0;
+				Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
+			}
+		}
 		else if(!read_f1_ex_life )
 		{
 			if(++f1_read_error_cnt>ERROR_CNT)	//210220 추가
@@ -8047,6 +8057,15 @@ void	Filter_life_check(void)         // 점검 기능
 		else if( Rb_Check(2) )
 		{
 			// 되쓰기 감지
+			if(++f2_read_error_cnt>ERROR_CNT)
+			{
+				f2_read_error_cnt = 0;
+				Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
+			}
+		}
+		else if( last_load_err2 == FERR_EMPTY )
+		{
+			// 빈 칩 : 정품이 아니라는 뜻이므로 위조로 본다
 			if(++f2_read_error_cnt>ERROR_CNT)
 			{
 				f2_read_error_cnt = 0;
@@ -8188,6 +8207,14 @@ void F1_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 			Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
 		}
 	}
+	else if( last_load_err1 == FERR_EMPTY )
+	{
+		// 빈 칩 : 정품이 아니라는 뜻이므로 위조로 본다
+		if(++byF1_life_err_cnt>ERROR_CNT) {
+			byF1_life_err_cnt = 0;
+			Filter_Err_Set(F1_ERR_MASK, 0x01);    // -> E03
+		}
+	}
 	else if(!filter1_life)
 	{
 		if(++byF1_life_err_cnt>ERROR_CNT) {
@@ -8276,6 +8303,14 @@ void F2_life_reload(void)	//151222_1 필터 교체시 체크 항목 수정
 	else if( Rb_Check(2) )
 	{
 		// 되쓰기 감지 : 다 쓴 칩의 잔량이 다시 늘었다
+		if(++byF2_life_err_cnt>ERROR_CNT) {
+			byF2_life_err_cnt = 0;
+			Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
+		}
+	}
+	else if( last_load_err2 == FERR_EMPTY )
+	{
+		// 빈 칩 : 정품이 아니라는 뜻이므로 위조로 본다
 		if(++byF2_life_err_cnt>ERROR_CNT) {
 			byF2_life_err_cnt = 0;
 			Filter_Err_Set(F2_ERR_MASK, 0x02);    // -> E04
