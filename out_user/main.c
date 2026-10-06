@@ -6254,27 +6254,16 @@ void Key_exe(void)
 	BYTE bImmFg;      // 1 = 지연 없이 바로 Key_action() 을 불러야 하는 경우
 	
 #if CHIP_DIAG_MODE
-	switch(key_new)
+	// 필터1 의 읽기 결과 코드만 보는 화면이라 전환할 것이 없다.
+	// 아무 키나 누르면 바로 다시 읽는다.
+	//  Key_exe() 는 키가 없어도 10ms 마다 불린다. key_new 를 보지 않으면
+	//  확인음이 10ms 마다 계속 나간다.
+	if(key_new)
 	{
-		case TCH_CLEAN :
-		case TCH_CLEAN_LONG :
-			bDiagCh    = (BYTE)((bDiagCh == 1) ? 2 : 1);   // 필터1 <-> 필터2
-			bDiagRdCnt = CHIP_DIAG_TICK;                   // 바로 다시 읽기
-			break;
-		
-		case TCH_ML :
-		case TCH_ML_MAX :
-			if(++bDiagPage > 4)	bDiagPage = 1;             // 페이지 순환
-			break;
-		
-		case TCH_START :
-			bDiagRdCnt = CHIP_DIAG_TICK;                   // 지금 바로 다시 읽기
-			break;
-		
-		default : break;
+		bDiagRdCnt = CHIP_DIAG_TICK;
+		Voice_output(SND_SELECT);
 	}
 	
-	Voice_output(SND_SELECT);
 	key_new = 0x00;
 	return;
 #endif
@@ -6892,28 +6881,15 @@ void Chip_Diag_Read(void)
 	WORD    sum = 0;
 	int8_t  e;
 	
-	if(bDiagCh == 1)
-	{
-		LoadFilter1_Init();                  // JEDEC 확인 + UID 로 AES 키 재유도
-		delay_1ms(1);
-		
-		lDiagLife = LoadFilter(ADDR_F1);     // 읽기 + 복호화 + 검증
-		e         = last_load_err1;
-		bDiagMid  = bJedecMid1;
-		
-		F1_ReadUID(0, uid);
-	}
-	else
-	{
-		LoadFilter2_Init();
-		delay_1ms(1);
-		
-		lDiagLife = LoadFilter_2(ADDR_F2);
-		e         = last_load_err2;
-		bDiagMid  = bJedecMid2;
-		
-		F2_ReadUID(0, uid);
-	}
+	// 필터1 만 본다
+	LoadFilter1_Init();                  // JEDEC 확인 + UID 로 AES 키 재유도
+	delay_1ms(1);
+	
+	lDiagLife = LoadFilter(ADDR_F1);     // 읽기 + 복호화 + 검증
+	e         = last_load_err1;
+	bDiagMid  = bJedecMid1;
+	
+	F1_ReadUID(0, uid);
 	
 	// 음수 코드를 화면에 쓰기 좋게 양수로
 	bDiagErr = (BYTE)((e < 0) ? -e : e);
@@ -6928,27 +6904,21 @@ void Chip_Diag_Read(void)
 **************************************************************************************************/
 void Chip_Diag_Disp(void)
 {
-	WORD v;
+	ULONG v;
 	
 	HT16D33_ClearBuffer();    // 앞 화면 흔적을 지우고 숫자만 남긴다
 	
-	switch(bDiagPage)
-	{
-		case 1 :	v = (WORD)bDiagMid;				break;   // 제조사 ID (10진수)
-		case 2 :	v = (WORD)bDiagErr;				break;   // 읽기 결과 코드
-		case 3 :	v = wDiagUid;					break;   // UID 합
-		default:	v = (WORD)(lDiagLife / 1000L);	break;   // 잔량 (L)
-	}
-	if(v > 999)	v = 999;
+	// 필터1 의 읽기 결과 코드만 6자리로 보여준다
+	//  0 정상 / 1 키 불일치 / 3 CRC / 4 범위 초과
+	//  5 chip_id 불일치 / 11 빈 칩 / 12 미연결 · 제조사 불일치
+	v = (ULONG)bDiagErr;
 	
-	// 좌 : [페이지] - [채널]  . 가운데 막대로 값과 확실히 구분한다
-	DISP_SetDigitNum(0, (BYTE)(bDiagPage % 10), 0);
-	DISP_SetDigitNum(1, FONT_MINUS,             0);
-	DISP_SetDigitNum(2, (BYTE)(bDiagCh % 10),   0);
-	
-	DISP_SetDigitNum(3, (BYTE)(v/100%10), 0);
-	DISP_SetDigitNum(4, (BYTE)(v/10%10),  0);
-	DISP_SetDigitNum(5, (BYTE)(v%10),     0);
+	DISP_SetDigitNum(0, (BYTE)(v/100000%10), 0);
+	DISP_SetDigitNum(1, (BYTE)(v/10000%10),  0);
+	DISP_SetDigitNum(2, (BYTE)(v/1000%10),   0);
+	DISP_SetDigitNum(3, (BYTE)(v/100%10),    0);
+	DISP_SetDigitNum(4, (BYTE)(v/10%10),     0);
+	DISP_SetDigitNum(5, (BYTE)(v%10),        0);
 	
 	DISP_NumDot(0);           // 앞 화면에서 켜진 소수점이 남지 않게
 	
