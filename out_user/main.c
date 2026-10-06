@@ -81,8 +81,8 @@ void Start_Delay_Check(void);
        페이지 3 : UID 16바이트 합 % 1000 (칩마다 달라야 한다)
        페이지 4 : 복호화된 잔량 (L)
 ****************************************************************************/
-#define CHIP_DIAG_MODE      0
-#define CHIP_DIAG_TICK     50    // 다시 읽는 주기 10ms x 50 = 500ms
+#define CHIP_DIAG_MODE      1
+#define CHIP_DIAG_TICK    100    // 다시 읽는 주기 10ms x 100 = 1초
 
 #if CHIP_DIAG_MODE
 void Chip_Diag_Read(void);
@@ -700,6 +700,15 @@ WORD  wDiagUid   = 0;      // UID 16바이트 합 % 1000
 ULONG lDiagLife  = 0;      // 복호화된 잔량 (mL)
 BYTE  bDiagRdCnt = 0;      // 다시 읽기 주기 카운터
 #endif
+
+// 칩 인증 표시 : 이 칩을 정품으로 확인한 적이 있는가
+//  본체가 아무 칩에나 쓰면 빈 칩이나 타사 칩이 정품으로 만들어져 버린다.
+//  복호화에 성공한 칩만 기억해 두었다가 그 칩에만 쓴다.
+//  chip_id 까지 같이 기억해서, 칩을 바꿔 꽂으면 인증이 풀리게 한다.
+BYTE  bF1Auth = 0;
+ULONG lF1AuthId = 0;
+BYTE  bF2Auth = 0;
+ULONG lF2AuthId = 0;
 WORD test=0;
 
 uint32_t lDispenseTick = 0;      // 연속 출수 시간 카운트
@@ -5834,10 +5843,8 @@ void key_input(void)
 	uint16_t cur_sw;
 	BYTE ml_release_event = 0;
 	BYTE hot_release_event = 0;
-#if FILTER_WRITER
+#if (FILTER_WRITER || CHIP_DIAG_MODE)
 	BYTE clean_release_event = 0;
-#else
-	//BYTE clean_release_event = 0;
 #endif
 	
 	
@@ -6923,6 +6930,8 @@ void Chip_Diag_Disp(void)
 {
 	WORD v;
 	
+	HT16D33_ClearBuffer();    // 앞 화면 흔적을 지우고 숫자만 남긴다
+	
 	switch(bDiagPage)
 	{
 		case 1 :	v = (WORD)bDiagMid;				break;   // 제조사 ID (10진수)
@@ -7784,17 +7793,24 @@ void Filter_life_save(void)
 		++f1_save_cnt; 
 		
 		if(f1_save_cnt==1){
-			if(!bChipPresent1){                  // 칩 미연결 : 쓰기 중단
+			// 정품으로 확인된 칩에만 쓴다.
+			//  이 조건이 없으면 빈 칩이나 타사 칩을 꽂아도 본체가 그 칩의
+			//  UID 로 정상 암호문을 만들어 기록해 버린다. 물을 조금만 쓰면
+			//  에러가 저절로 사라지고 그 뒤로는 정품으로 통과한다.
+			//  원래 코드는 미연결일 때 return 이 주석 처리되어 있어, 플래그만
+			//  지우고 그대로 지우기·쓰기를 진행했다.
+			if( !bChipPresent1 || !bF1Auth || (chip_id1 != lF1AuthId) )
+			{
 				f1_save_cnt = 0;
 				f1_life_save_fg = 0;
-				//return;
 			}
-			
-			
-			save_f1_life = filter1_life;
-			ReadCnt( ADDR_F1 ,save_f1_life);
-			
-			F1_Erase4K(0);
+			else
+			{
+				save_f1_life = filter1_life;
+				ReadCnt( ADDR_F1 ,save_f1_life);
+				
+				F1_Erase4K(0);
+			}
 		}
 		else if(f1_save_cnt==2)
 		{
@@ -7849,17 +7865,19 @@ void Filter_life_save(void)
 
 		if(f2_save_cnt==1)//231005
 		{	
-			if(!bChipPresent2){                  // 칩 미연결 : 쓰기 중단
+			// 정품으로 확인된 칩에만 쓴다 (필터1 과 같은 이유)
+			if( !bChipPresent2 || !bF2Auth || (chip_id2 != lF2AuthId) )
+			{
 				f2_save_cnt = 0;
 				f2_life_save_fg = 0;
-				//return;
 			}
-			
-			save_f2_life = filter2_life;
-			ReadCnt_2( ADDR_F2 ,save_f2_life);
-			
-			F2_Erase4K(0);
-			
+			else
+			{
+				save_f2_life = filter2_life;
+				ReadCnt_2( ADDR_F2 ,save_f2_life);
+				
+				F2_Erase4K(0);
+			}
 		}
 		else if(f2_save_cnt==2)
 		{
@@ -7944,6 +7962,8 @@ void	Filter_life_check(void)         // 점검 기능
 			delay_1ms(1);
 		}
 		
+		if(!bChipPresent1)	bF1Auth = 0;    // 칩이 빠졌다 -> 인증 해제
+		
 		read_f1_ex_life =  LoadFilter(ADDR_F1); // Eeprom_ex_load(1);
 		//f1_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
 
@@ -7996,6 +8016,9 @@ void	Filter_life_check(void)         // 점검 기능
 			f1_life_check_fg = 0;	//210220 위치이동
 			f1_read_error_cnt = 0;
 			filter_error_fg &= 0xba;	//1011 1010  읽기에러만 클리어 080128-> 231005 0xbb->0xba 쓰기 에러도 클리어
+			
+			bF1Auth   = 1;              // 정품 확인됨 : 이 칩에만 쓰기를 허용
+			lF1AuthId = chip_id1;
 		
 		}
  	}
@@ -8028,6 +8051,8 @@ void	Filter_life_check(void)         // 점검 기능
 			LoadFilter2_Init();
 			delay_1ms(1);
 		}
+		
+		if(!bChipPresent2)	bF2Auth = 0;    // 칩이 빠졌다 -> 인증 해제
 		
 		read_f2_ex_life =  LoadFilter_2(ADDR_F2); // Eeprom_ex_load(2);
 		//f2_life_check_fg = 0;		//080611_2 필터에러시 음성출력 이상
@@ -8080,6 +8105,9 @@ void	Filter_life_check(void)         // 점검 기능
 			f2_life_check_fg = 0;	//210220 위치이동
 			f2_read_error_cnt = 0;
 			filter_error_fg &= 0x75;	//0111 0111  읽기에러만 클리어 080128 -> 231005 0x77->0x75 쓰기 에러도 클리어
+			
+			bF2Auth   = 1;              // 정품 확인됨 : 이 칩에만 쓰기를 허용
+			lF2AuthId = chip_id2;
 			
 		}
 	}
