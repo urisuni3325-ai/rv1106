@@ -6932,13 +6932,16 @@ void Chip_Diag_Disp(void)
 	}
 	if(v > 999)	v = 999;
 	
+	// 좌 : [페이지] - [채널]  . 가운데 막대로 값과 확실히 구분한다
 	DISP_SetDigitNum(0, (BYTE)(bDiagPage % 10), 0);
-	DISP_SetDigitNum(1, (BYTE)(bDiagCh % 10),   0);
-	DISP_SetDigitNum(2, FONT_BLANK,             0);
+	DISP_SetDigitNum(1, FONT_MINUS,             0);
+	DISP_SetDigitNum(2, (BYTE)(bDiagCh % 10),   0);
 	
 	DISP_SetDigitNum(3, (BYTE)(v/100%10), 0);
 	DISP_SetDigitNum(4, (BYTE)(v/10%10),  0);
 	DISP_SetDigitNum(5, (BYTE)(v%10),     0);
+	
+	DISP_NumDot(0);           // 앞 화면에서 켜진 소수점이 남지 않게
 	
 	HT16D33_Update();
 }
