@@ -60,6 +60,22 @@ static unsigned char Buffer[BufferSize];
 void Start_Delay_Check(void);
 
 /****************************************************************************
+   문(세정커버) 열림 중 밸브 처리
+     문이 열려 있는 동안 SOL1 을 닫아 원수를 끊고, SOL7 / SOL8 을 열어
+     잔압과 잔수를 빼 둔다. 정비 중에 라인에 압이 걸려 있지 않게 한다.
+
+     Door_Check() 는 10ms 마다 돌지만 이 함수는 100ms 마다, 그리고
+     Output_control() 바로 뒤에서 부른다. Output_control() 이 같은 틱에
+     SOL7_OFF / SOL8_OFF 를 써도 곧바로 덮어쓰므로 코일이 100ms 주기로
+     끊겨 딱딱 소리가 나는 일이 없다.
+     (단수 FLUSHING 분기는 조건 없이 매 틱 SOL7_OFF 를 쓴다)
+
+     열림 판정은 Door_Check() 의 2초 디바운스(wDoorCnt>=200)를 그대로
+     따른다. 문을 열고 2초 뒤부터 적용된다.
+****************************************************************************/
+void Door_Valve_Control(void);
+
+/****************************************************************************
    필터 칩 진단 화면
      0 = 사용 안 함 , 1 = 사용 (서비스용. 출하 펌웨어는 반드시 0)
 
@@ -81,7 +97,7 @@ void Start_Delay_Check(void);
        페이지 3 : UID 16바이트 합 % 1000 (칩마다 달라야 한다)
        페이지 4 : 복호화된 잔량 (L)
 ****************************************************************************/
-#define CHIP_DIAG_MODE      1
+#define CHIP_DIAG_MODE      0
 #define CHIP_DIAG_TICK    100    // 다시 읽는 주기 10ms x 100 = 1초
 
 #if CHIP_DIAG_MODE
@@ -225,6 +241,8 @@ uint8_t Disp_ReadBuffer[BUFFER_SIZE];
 uint16_t wDoorCnt = 0;
 uint8_t bDoorState = 0;
 uint8_t bPrevDoorState = 0;
+// 문 열림 중 밸브를 조작했는가 . 문이 닫히는 순간 한 번만 되돌리기 위한 표시
+BYTE bDoorValveFg = 0;
 uint16_t wDoorOpenCnt = 0;
    
 
@@ -1913,6 +1931,7 @@ void mainloop(void)
 			//Cool_Control();// cool
 			Start_Delay_Check();    // 출수 시작 지연 (1초 뒤에 Key_action)
 			Output_control(); 
+			Door_Valve_Control();   // 문 열림 중에는 Output_control 의 밸브 출력을 덮어쓴다
 
 			if(eep_data_fg) {
 				Set_Eep_Exe();
@@ -3747,7 +3766,7 @@ void  Output_control(void)	//1sec -> 0.1
 				case PH_SET :         // 알카리 설정시 
 				case PH_SET2 : 
 				case PH_SET3: 
-					if(++ion_stop_cnt>=CLEAN_TIME)
+					if(++ion_stop_cnt>=SOL_STOP_TIME)
 					{
 						after_clean_fg = 0;		//  후세정 후 전류인가 금지하게 하기 위해 		
 						
@@ -3768,7 +3787,22 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL6_OFF; 
 						SOL8_OFF;
 					}
-					else if(ion_stop_cnt>20)	
+					else if(ion_stop_cnt==CLEAN_TIME) //200=20초후  261007
+					{
+						after_clean_fg = 0; 
+			
+						Pwm_off();
+						pi_value    = 0;
+						error_0_old = 0;
+						
+						RELAY_OFF;           		// 극성 on
+						
+						SOL3_OFF;
+						SOL6_ON;
+						SOL8_ON;
+					}
+					
+					else if(ion_stop_cnt==20)	
 					{
 						RELAY_ON;       
 						
@@ -3777,7 +3811,7 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL6_ON; 
 						SOL8_ON;
 					}
-					else if(ion_stop_cnt>0)	
+					else if(ion_stop_cnt==1)	
 					{
 						
 						SOL4_OFF; 
@@ -3800,7 +3834,7 @@ void  Output_control(void)	//1sec -> 0.1
 			switch(s_mode_old&0xff0)		//정지하기 이전 모드로 출력 제어
 			{
 				case CLEAN :             // 세정
-					/*if(++ion_stop_cnt>=620) //???
+					/*if(++ion_stop_cnt>=SOL_STOP_TIME) //???
 					{
 						RELAY_OFF;          		// 알카리수 출수
 						Pwm_off();
@@ -3860,7 +3894,7 @@ void  Output_control(void)	//1sec -> 0.1
 					break;
 				case ALKA :             				// 알카리
 					
-					if(++ion_stop_cnt>=CLEAN_TIME)	
+					if(++ion_stop_cnt>=SOL_STOP_TIME)	
 					{
 						after_clean_fg = 0;			
 						
@@ -3877,6 +3911,20 @@ void  Output_control(void)	//1sec -> 0.1
 						m_state &= 0x7d;       		// 대기 상태로 복귀
 
 						Pwm_off();
+					}
+					else if(ion_stop_cnt==CLEAN_TIME) //200=20초후  261007
+					{
+						after_clean_fg = 0; 
+			
+						Pwm_off();
+						pi_value    = 0;
+						error_0_old = 0;
+						
+						RELAY_OFF;           		// 극성 on
+						
+						SOL3_OFF;
+						SOL6_ON;
+						SOL8_ON;
 					}
 					else if(ion_stop_cnt==20) //20=2초후
 					{
@@ -3918,7 +3966,7 @@ void  Output_control(void)	//1sec -> 0.1
 				case COOLALKALI :             				// 알카리
 					
 					
-					if(++ion_stop_cnt>=CLEAN_TIME)	
+					if(++ion_stop_cnt>=SOL_STOP_TIME)	
 					{
 						after_clean_fg = 0;			
 						
@@ -3936,6 +3984,20 @@ void  Output_control(void)	//1sec -> 0.1
 
 						Pwm_off();
 					}
+					else if(ion_stop_cnt==CLEAN_TIME) //20초후 261007
+					{
+						after_clean_fg = 0; 
+						
+						Pwm_off();
+						pi_value    = 0;
+						error_0_old = 0;
+						
+						RELAY_OFF;           		// 산성수 출수
+						SOL2_OFF;
+						SOL6_ON;
+						SOL8_ON;
+					}
+					
 					else if(ion_stop_cnt==20) //2초후
 					{
 						// 전류가 흐르는 채로 릴레이를 전환하면 접점이 상한다.
@@ -4718,6 +4780,32 @@ void Door_Check(void)
 */
 	
 
+}
+
+/**************************************************************************************************
+		문 열림 중 밸브 처리
+**************************************************************************************************/
+void Door_Valve_Control(void)
+{
+	if(bDoorState)					// 문 열림
+	{
+		bDoorValveFg = 1;
+		
+		SOL1_CLOSE;					// NOS 닫기 . 원수 차단
+		SOL7_ON;					// 가스배기 열기
+		SOL8_ON;					// 배수 열기
+	}
+	else if(bDoorValveFg)			// 문이 닫힌 뒤 한 번만 되돌린다
+	{
+		bDoorValveFg = 0;
+		
+		SOL7_OFF;
+		SOL8_OFF;
+		
+		// SOL1 은 여기서 열지 않는다.
+		//  ERR_COVER_OPEN 이 지워지면 fcError() 의 마지막 else 가 SOL1_OPEN 을
+		//  한다. 누수나 온도에러가 아직 남아 있으면 그쪽에서 계속 닫아 둔다.
+	}
 }
 
 /*
