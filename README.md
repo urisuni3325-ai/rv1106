@@ -27,6 +27,7 @@ USB 로 PC 에서 보던 것과 달리, 보드는 **표준 RTSP 서버**가 되�
 | `android/` | 안드로이드 앱 (Kotlin). 외부 스트리밍 라이브러리 없이 RTSP/RTP 를 직접 구현 |
 | `device/scripts/` | 보드에서 실행하는 WiFi 접속 / 스트리밍 설정 / 점검 스크립트 |
 | `docs/` | 보드 설정, 지연 시간 튜닝, 문제 해결 가이드 |
+| [`esp32p4/`](esp32p4/README.md) | **ESP32-P4 + USB 카메라(IMX298)** 펌웨어. 브라우저로 WebRTC 실시간 영상 + 16MP 스냅샷 |
 
 ## 빠른 시작
 

@@ -1,0 +1,13 @@
+## 의존 컴포넌트는 첫 빌드 때 ESP 컴포넌트 레지스트리에서 자동으로 받아옵니다.
+dependencies:
+  idf: ">=5.5"
+  # USB UVC 카메라 호스트 드라이버 (USB 호스트 라이브러리는 IDF 버전에 맞춰 알아서 가져온다)
+  espressif/usb_host_uvc: "^2.4"
+  # 하드웨어 H.264 인코더
+  espressif/esp_h264: "^1.4"
+  # WebRTC PeerConnection (ICE/DTLS-SRTP/RTP)
+  espressif/esp_peer: "^1.5"
+  # ESP32-P4 는 WiFi 가 없어서 보드의 ESP32-C6 를 SDIO 로 붙여 쓴다 (esp_hosted 를 함께 가져옴)
+  espressif/esp_wifi_remote: "~1.6"
+  # http://p4cam.local 로 접속
+  espressif/mdns: "^1.8"

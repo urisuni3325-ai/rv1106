@@ -1,0 +1,80 @@
+menu "P4 USB 카메라 WebRTC"
+
+    menu "WiFi"
+        config APP_WIFI_SSID
+            string "공유기 이름(SSID)"
+            default "myssid"
+
+        config APP_WIFI_PASSWORD
+            string "공유기 비밀번호"
+            default "mypassword"
+
+        config APP_MDNS_HOSTNAME
+            string "mDNS 이름 (http://<이름>.local)"
+            default "p4cam"
+    endmenu
+
+    menu "카메라 / 영상"
+        config APP_STREAM_WIDTH
+            int "실시간 영상 가로 해상도"
+            range 160 1920
+            default 1280
+            help
+                카메라가 MJPEG 로 내보내는 해상도 중에서 고릅니다.
+                IMX298(B0290) 은 1920x1080, 1280x720 을 30fps 로 낼 수 있습니다.
+                하드웨어 H.264 인코더 한계가 가로 1920 입니다.
+
+        config APP_STREAM_HEIGHT
+            int "실시간 영상 세로 해상도"
+            range 120 1088
+            default 720
+
+        config APP_STREAM_FPS
+            int "실시간 영상 프레임레이트"
+            range 5 30
+            default 30
+
+        config APP_H264_BITRATE_KBPS
+            int "H.264 비트레이트 (kbps)"
+            range 300 10000
+            default 2500
+
+        config APP_H264_GOP
+            int "키프레임 간격 (프레임 수)"
+            range 1 255
+            default 30
+            help
+                프레임레이트와 비슷하게 잡으면 패킷이 유실돼도 1초 안에 화면이 복구됩니다.
+
+        config APP_UVC_FRAME_BUF_KB
+            int "USB 프레임 버퍼 1개 크기 (KB)"
+            range 512 16384
+            default 4096
+            help
+                고해상도 스냅샷(16MP MJPEG) 한 장이 들어갈 만큼 커야 합니다.
+                버퍼가 작으면 고해상도 스냅샷이 실패하고 실시간 해상도로 대신 찍힙니다.
+                PSRAM 이 16MB 인 보드라면 2048~3072 정도로 줄이세요.
+
+        config APP_UVC_FRAME_BUF_COUNT
+            int "USB 프레임 버퍼 개수"
+            range 2 4
+            default 3
+
+        config APP_SNAPSHOT_SKIP_FRAMES
+            int "고해상도 전환 후 버릴 프레임 수"
+            range 0 10
+            default 2
+            help
+                해상도를 바꾼 직후 몇 장은 노출이 덜 잡혀 어둡거나 깨질 수 있어 버립니다.
+    endmenu
+
+    menu "WebRTC"
+        config APP_STUN_URL
+            string "STUN 서버 (같은 공유기 안에서만 쓰면 비워 두세요)"
+            default ""
+            help
+                예: stun:stun.l.google.com:19302
+                비워 두면 같은 네트워크(공유기) 안에서 바로 연결합니다.
+    endmenu
+
+endmenu

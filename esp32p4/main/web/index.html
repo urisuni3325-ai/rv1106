@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P4 USB 카메라</title>
+<style>
+  :root {
+    --bg: #111418; --panel: #1b2027; --line: #2a313b; --text: #e8ecf1; --dim: #8a95a3;
+    --accent: #3d8bfd; --ok: #2fbf71; --warn: #f0a020; --bad: #e5484d;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+  #state { color: var(--dim); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 32px; }
+  .stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9; }
+  video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+             color: var(--dim); font-size: 15px; pointer-events: none; text-align: center; padding: 16px; }
+  .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .flash.on { opacity: .6; transition: none; }
+  .hud { position: absolute; left: 8px; bottom: 8px; font: 12px ui-monospace, monospace; color: #cfd6df;
+         background: rgba(0,0,0,.55); padding: 3px 7px; border-radius: 4px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+           padding: 9px 14px; border-radius: 6px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  label.chk { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 14px; margin-left: auto; }
+  .info { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .info div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .info b { display: block; font-size: 12px; color: var(--dim); font-weight: 500; }
+  .info span { font: 14px ui-monospace, monospace; }
+  h2 { font-size: 15px; margin: 18px 0 8px; font-weight: 600; }
+  #shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .shot { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .shot img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; cursor: zoom-in; background: #000; }
+  .shot .meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 6px 8px; font-size: 12px; color: var(--dim); }
+  .shot a { color: var(--accent); text-decoration: none; }
+  .empty { color: var(--dim); font-size: 14px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #000c; color: #fff;
+           padding: 8px 14px; border-radius: 6px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  dialog { border: 0; padding: 0; background: #000; max-width: 96vw; max-height: 96vh; }
+  dialog img { max-width: 96vw; max-height: 96vh; display: block; }
+  dialog::backdrop { background: #000d; }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="dot"></div>
+  <h1>ESP32-P4 USB 카메라</h1>
+  <span id="state">연결 전</span>
+</header>
+<main>
+  <div class="stage" id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="overlay" id="overlay">연결 버튼을 누르세요</div>
+    <div class="flash" id="flash"></div>
+    <div class="hud" id="hud" hidden></div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="btnConnect">연결</button>
+    <button id="btnSnap" title="지금 화면 해상도로 바로 찍습니다">스냅샷</button>
+    <button id="btnSnapHi" title="카메라 최대 해상도로 찍습니다. 1~2초 동안 영상이 멈춥니다">고해상도 스냅샷</button>
+    <button id="btnFull">전체 화면</button>
+    <label class="chk"><input type="checkbox" id="autoSave"> 찍으면 바로 저장</label>
+  </div>
+
+  <div class="info">
+    <div><b>카메라</b><span id="iCam">-</span></div>
+    <div><b>카메라 FPS</b><span id="iCamFps">-</span></div>
+    <div><b>수신 영상</b><span id="iRx">-</span></div>
+    <div><b>수신 비트레이트</b><span id="iRate">-</span></div>
+    <div><b>스냅샷 최대</b><span id="iMax">-</span></div>
+    <div><b>보드 메모리 (PSRAM)</b><span id="iMem">-</span></div>
+  </div>
+
+  <h2>스냅샷</h2>
+  <div id="shots"><div class="empty">아직 찍은 사진이 없습니다.</div></div>
+</main>
+<div id="toast"></div>
+<dialog id="viewer"><img id="viewerImg" alt=""></dialog>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+let pc = null;
+let wantConnected = false;
+let retryTimer = null;
+let lastStats = null;
+let session = 0;
+
+function setState(text, level) {
+  $("state").textContent = text;
+  $("dot").className = "dot" + (level ? " " + level : "");
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+function waitIceGathering(conn, timeoutMs) {
+  if (conn.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { conn.removeEventListener("icegatheringstatechange", check); resolve(); };
+    const check = () => { if (conn.iceGatheringState === "complete") done(); };
+    conn.addEventListener("icegatheringstatechange", check);
+    // 같은 공유기 안이면 host 후보만으로 충분하니 오래 기다리지 않는다
+    setTimeout(done, timeoutMs);
+  });
+}
+
+function closePeer() {
+  if (pc) {
+    pc.ontrack = null;
+    pc.onconnectionstatechange = null;
+    pc.close();
+    pc = null;
+  }
+  video.srcObject = null;
+  $("hud").hidden = true;
+  lastStats = null;
+}
+
+async function connect() {
+  clearTimeout(retryTimer);
+  closePeer();
+  wantConnected = true;
+  $("btnConnect").textContent = "끊기";
+  $("overlay").textContent = "연결 중...";
+  $("overlay").hidden = false;
+  setState("연결 중", "warn");
+  try {
+    pc = new RTCPeerConnection({ iceServers: [] });
+    const myPc = pc;
+    pc.ontrack = (e) => {
+      video.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc !== myPc) return;
+      const s = pc.connectionState;
+      if (s === "connected") {
+        setState("실시간 재생 중", "ok");
+        $("overlay").hidden = true;
+        $("hud").hidden = false;
+      } else if (s === "failed" || s === "disconnected" || s === "closed") {
+        setState("연결 끊김 — 다시 연결합니다", "bad");
+        $("overlay").textContent = "연결이 끊겼습니다";
+        $("overlay").hidden = false;
+        scheduleRetry();
+      }
+    };
+
+    const res = await fetch("/api/offer", { cache: "no-store" });
+    if (!res.ok) throw new Error(await res.text());
+    session = Number(res.headers.get("X-Session") || 0);
+    const offer = await res.text();
+    await pc.setRemoteDescription({ type: "offer", sdp: offer });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitIceGathering(pc, 1500);
+    const r2 = await fetch("/api/answer?session=" + session, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: pc.localDescription.sdp,
+    });
+    if (!r2.ok) throw new Error(await r2.text());
+  } catch (err) {
+    console.error(err);
+    setState("연결 실패: " + err.message, "bad");
+    $("overlay").textContent = "연결 실패 — 잠시 후 다시 시도합니다";
+    scheduleRetry();
+  }
+}
+
+function scheduleRetry() {
+  if (!wantConnected) return;
+  clearTimeout(retryTimer);
+  // "disconnected" 는 잠깐 끊겼다 스스로 회복하기도 하니 3초 뒤에도 안 붙어 있을 때만 다시 연결
+  retryTimer = setTimeout(async () => {
+    if (!wantConnected || (pc && pc.connectionState === "connected")) return;
+    // 시청자는 한 명뿐이라, 다른 기기가 보고 있으면 뺏어 오지 않는다 (두 탭이 서로 끊는 것 방지)
+    try {
+      const s = await (await fetch("/api/status", { cache: "no-store" })).json();
+      if (s.webrtc === "connected") {
+        wantConnected = false;
+        closePeer();
+        $("btnConnect").textContent = "연결";
+        setState("다른 기기가 보는 중", "warn");
+        $("overlay").textContent = "다른 기기가 보는 중입니다 — 연결을 누르면 이쪽으로 가져옵니다";
+        $("overlay").hidden = false;
+        return;
+      }
+    } catch (e) { /* 보드가 안 보이면 그냥 다시 시도 */ }
+    if (wantConnected) connect();
+  }, 3000);
+}
+
+function disconnect() {
+  wantConnected = false;
+  clearTimeout(retryTimer);
+  closePeer();
+  fetch("/api/hangup?session=" + session, { method: "POST" }).catch(() => {});
+  $("btnConnect").textContent = "연결";
+  $("overlay").textContent = "연결 버튼을 누르세요";
+  $("overlay").hidden = false;
+  setState("연결 끊음", "");
+}
+
+$("btnConnect").onclick = () => (wantConnected ? disconnect() : connect());
+
+window.addEventListener("pagehide", () => {
+  if (pc) navigator.sendBeacon("/api/hangup?session=" + session, "bye");
+});
+
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function saveBlob(url, name) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function addShot(url, name, res, kb) {
+  const box = $("shots");
+  const empty = box.querySelector(".empty");
+  if (empty) empty.remove();
+  const el = document.createElement("div");
+  el.className = "shot";
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = name;
+  img.onclick = () => { $("viewerImg").src = url; $("viewer").showModal(); };
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const info = document.createElement("span");
+  info.textContent = `${res} · ${kb}KB`;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.textContent = "저장";
+  meta.append(info, link);
+  el.append(img, meta);
+  box.prepend(el);
+}
+
+async function snapshot(hires) {
+  const btns = [$("btnSnap"), $("btnSnapHi")];
+  btns.forEach((b) => (b.disabled = true));
+  if (hires) toast("고해상도로 찍는 중... (1~2초)");
+  try {
+    const res = await fetch("/api/snapshot" + (hires ? "?hires=1" : ""), { cache: "no-store" });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const reso = res.headers.get("X-Resolution") || "";
+    const fallback = res.headers.get("X-Fallback") === "1";
+    const url = URL.createObjectURL(blob);
+    const name = `IMG_${stamp()}_${reso || "snap"}.jpg`;
+    addShot(url, name, reso, Math.round(blob.size / 1024));
+    const f = $("flash");
+    f.classList.add("on");
+    requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove("on")));
+    if ($("autoSave").checked) saveBlob(url, name);
+    toast(fallback ? `고해상도 실패 — ${reso} 로 찍었습니다 (프레임 버퍼 설정 확인)` : `찍었습니다 (${reso})`);
+  } catch (err) {
+    toast("스냅샷 실패: " + err.message);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+  }
+}
+
+$("btnSnap").onclick = () => snapshot(false);
+$("btnSnapHi").onclick = () => snapshot(true);
+$("btnFull").onclick = () => {
+  const el = $("stage");
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (el.requestFullscreen) el.requestFullscreen();
+  else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+};
+$("viewer").onclick = () => $("viewer").close();
+
+try { $("autoSave").checked = localStorage.getItem("autoSave") === "1"; } catch (e) {}
+$("autoSave").onchange = () => { try { localStorage.setItem("autoSave", $("autoSave").checked ? "1" : "0"); } catch (e) {} };
+
+async function pollStatus() {
+  try {
+    const s = await (await fetch("/api/status", { cache: "no-store" })).json();
+    const c = s.camera;
+    $("iCam").textContent = c.connected ? `${c.width}x${c.height}` : "연결 안 됨";
+    $("iCamFps").textContent = c.connected ? c.fps.toFixed(1) : "-";
+    $("iMax").textContent = c.connected ? `${c.max_width}x${c.max_height}` : "-";
+    $("iMem").textContent = `${(s.heap_psram / 1048576).toFixed(1)}MB 남음`;
+    if (!c.connected && !wantConnected) setState("카메라를 기다리는 중", "warn");
+  } catch (e) { /* 스냅샷 촬영 중에는 응답이 늦을 수 있음 */ }
+}
+
+async function pollRtc() {
+  if (!pc) return;
+  try {
+    const stats = await pc.getStats();
+    stats.forEach((r) => {
+      if (r.type !== "inbound-rtp" || r.kind !== "video") return;
+      const now = r.timestamp;
+      if (lastStats) {
+        const dt = (now - lastStats.t) / 1000;
+        const kbps = ((r.bytesReceived - lastStats.bytes) * 8) / dt / 1000;
+        $("iRate").textContent = `${kbps.toFixed(0)} kbps`;
+      }
+      lastStats = { t: now, bytes: r.bytesReceived };
+      const fps = r.framesPerSecond ? r.framesPerSecond.toFixed(0) : "-";
+      const w = r.frameWidth || video.videoWidth;
+      const h = r.frameHeight || video.videoHeight;
+      $("iRx").textContent = w ? `${w}x${h} ${fps}fps` : "-";
+      const lost = r.packetsLost || 0;
+      $("hud").textContent = `${w}x${h} · ${fps}fps · 손실 ${lost}`;
+    });
+  } catch (e) {}
+}
+
+setInterval(pollStatus, 2000);
+setInterval(pollRtc, 1000);
+pollStatus();
+connect();
+</script>
+</body>
+</html>
