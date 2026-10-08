@@ -4189,8 +4189,17 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL4_OFF;
 						SOL5_OFF;
 						SOL6_OFF;
-						SOL7_OFF;	
-						SOL8_OFF;
+						
+						// 이 분기는 조건 없이 매 100ms 돈다. 문 열림 중에 여기서 끄면
+						//  Door_Valve_Control() 이 바로 뒤에서 다시 켜므로 코일이
+						//  100ms 주기로 수 us 끊긴다. 들리지는 않지만 쓸 데 없는
+						//  전이이므로 문이 열려 있는 동안은 배수 경로를 그대로 둔다.
+						//  (이 분기는 m_state 의 단수 비트를 지우지 않아 영구히 돈다)
+						if(!bDoorState)
+						{
+							SOL7_OFF;	
+							SOL8_OFF;
+						}
 				
 						ionize_fg=0;
 						flow_in_fg=0;  		
