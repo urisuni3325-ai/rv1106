@@ -3804,6 +3804,16 @@ void  Output_control(void)	//1sec -> 0.1
 					
 					else if(ion_stop_cnt==20)	
 					{
+						// 전류가 흐르는 채로 릴레이를 전환하면 접점이 상한다.
+						//  PH 설정 단수에서는 Current_pid() 가 돌지 않는다.
+						//  호출 게이트가 s_mode 를 보는데, 정지하면 Key_action() 의
+						//  s_mode ^= 0x800 으로 ION_OUT1 -> PH_SET 이 되어 게이트가
+						//  성립하지 않는다. 그래서 여기서 한 번 끄면 역극성 전류는
+						//  다시 올라오지 않고, 물만 흘리는 후세정이 된다.
+						Pwm_off();
+						pi_value    = 0;
+						error_0_old = 0;
+						
 						RELAY_ON;       
 						
 						SOL3_ON; 
