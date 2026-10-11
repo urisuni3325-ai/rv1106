@@ -2,7 +2,7 @@
 dependencies:
   idf: ">=5.5"
   # USB UVC 카메라 호스트 드라이버 (USB 호스트 라이브러리는 IDF 버전에 맞춰 알아서 가져온다)
-  espressif/usb_host_uvc: "^2.4"
+  espressif/usb_host_uvc: "^2.6"   # 2.6: Camera Terminal 제어 (노출 우선순위)
   # 하드웨어 H.264 인코더
   espressif/esp_h264: "^1.4"
   # WebRTC PeerConnection (ICE/DTLS-SRTP/RTP)

@@ -47,7 +47,9 @@ const server = http.createServer(async (req, res) => {
   if (req.url === "/api/status") {
     res.setHeader("Content-Type", "application/json");
     return res.end(JSON.stringify({ camera: { connected: true, width: 1280, height: 720, fps: 30, max_width: 4656, max_height: 3496, dropped: 0 },
-      encoder: {}, webrtc: await boardPage.evaluate(() => (window.pc && window.pc.connectionState === "connected" ? "connected" : "idle")), ip: "127.0.0.1", heap_internal: 1, heap_psram: 20e6, uptime_s: 1 }));
+      pipeline: { width: 1280, height: 720, ppa_path: true, dec_fps: 30, enc_fps: 30, sent_fps: 30, sent_kbps: 1800,
+        target_kbps: 2000, dec_ms: 9, enc_ms: 14, send_ms: 3, drop_busy: 0, drop_net: 0, errors: 0 },
+      webrtc: await boardPage.evaluate(() => (window.pc && window.pc.connectionState === "connected" ? "connected" : "idle")), ip: "127.0.0.1", heap_internal: 1, heap_psram: 20e6, uptime_s: 1 }));
   }
   res.statusCode = 404; res.end();
 });
@@ -83,6 +85,11 @@ const vw = await page.evaluate(() => document.getElementById("video").videoWidth
 console.log("state:", st, "videoWidth:", vw);
 await page.waitForTimeout(2500);
 const rx = await page.textContent("#iRx");
+await page.waitForTimeout(2200);   // 진단 줄은 /api/status 폴링(2초)마다 갱신
+const diag = await page.textContent("#dFlow");
+const hint = await page.textContent("#dHint");
+console.log("diag:", diag, "| hint:", hint);
+if (!diag.includes("인코드 30.0") || hint !== "정상") { console.log("FAIL: 진단 표시"); process.exit(1); }
 const overlay = await page.evaluate(() => getComputedStyle(document.getElementById("overlay")).display);
 console.log("rx:", rx, "overlay:", overlay);
 

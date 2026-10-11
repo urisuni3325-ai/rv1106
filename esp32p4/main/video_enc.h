@@ -5,30 +5,32 @@
 #include <stdbool.h>
 #include "esp_err.h"
 
-/* MJPEG 한 장 → (하드웨어 JPEG 디코더) → YUV420 → (하드웨어 H.264 인코더) → H.264 AU
+/* 하드웨어 영상 변환 단계들. 실제 태스크 구성은 pipeline.c
  *
- * 카메라 MJPEG 가 4:2:0 이고 해상도가 16 의 배수면 디코더가 인코더 입력 포맷
- * (O_UYY_E_VYY) 으로 바로 뽑아 준다. 4:2:2 등 그 밖의 경우엔 RGB565 로 디코드한 뒤
- * PPA(픽셀 처리 가속기)로 YUV420 변환 + 16 배수 크롭을 한다. 둘 다 CPU 를 거의 안 쓴다. */
+ *  디코드: MJPEG → (하드웨어 JPEG 디코더) → YUV420 (O_UYY_E_VYY, H.264 인코더 입력 포맷)
+ *          4:2:0 이고 16 배수면 디코더가 바로 YUV420 으로 뽑는다. 4:2:2 등은 RGB565 로
+ *          디코드한 뒤 PPA(픽셀 처리 가속기)로 YUV420 변환 + 16 배수 크롭.
+ *  인코드: YUV420 → (하드웨어 H.264 인코더) → H.264 AU
+ *
+ * 디코드 함수는 디코드 태스크에서만, 인코드 함수는 인코드 태스크에서만 부른다. */
 
-typedef void (*video_enc_out_cb_t)(const uint8_t *data, size_t len, bool keyframe, uint32_t pts_ms, void *ctx);
+esp_err_t video_dec_init(void);
 
-esp_err_t video_enc_init(uint8_t fps, uint32_t bitrate_bps, uint8_t gop);
+/* JPEG 헤더만 보고 인코딩 크기(16 배수로 내림)를 알려 준다 */
+esp_err_t video_dec_probe(const uint8_t *jpeg, size_t len, int *enc_w, int *enc_h);
 
-/* 결과는 cb 로 바로 넘어간다(같은 태스크, 같은 호출 안에서). */
-esp_err_t video_enc_process(const uint8_t *jpeg, size_t len, uint32_t pts_ms, video_enc_out_cb_t cb, void *ctx);
+/* jpeg_alloc_decoder_mem 으로 YUV420 버퍼 할당 (디코더·PPA·H.264 DMA 정렬 조건을 만족) */
+uint8_t *video_alloc_yuv(int w, int h, size_t *cap);
+void video_free_yuv(uint8_t *buf);
 
-/* 다음 프레임을 IDR 로. 새 시청자가 붙었거나 브라우저가 PLI 를 보냈을 때 */
-void video_enc_request_idr(void);
+/* *ppa_path 에 어느 경로를 썼는지 돌려준다 */
+esp_err_t video_dec_to_yuv(const uint8_t *jpeg, size_t len, uint8_t *yuv, size_t yuv_cap,
+                           int enc_w, int enc_h, bool *ppa_path);
 
-typedef struct {
-    int      width;          /* 인코딩 해상도 (0 이면 아직 시작 전) */
-    int      height;
-    bool     ppa_path;       /* RGB565 + PPA 경로를 쓰는 중인지 */
-    uint32_t frames;         /* 누적 인코딩 프레임 */
-    uint32_t bytes;          /* 누적 출력 바이트 */
-    uint32_t last_ms;        /* 마지막 프레임 처리 시간 (디코드+변환+인코드) */
-    uint32_t errors;
-} video_enc_stats_t;
-
-void video_enc_get_stats(video_enc_stats_t *out);
+esp_err_t video_h264_open(int w, int h, uint8_t fps, uint32_t bitrate_bps, uint8_t gop);
+void video_h264_close(void);
+bool video_h264_is_open(int w, int h);
+esp_err_t video_h264_encode(const uint8_t *yuv, uint32_t yuv_len, uint32_t pts_ms,
+                            uint8_t *out, uint32_t out_cap, uint32_t *out_len, bool *keyframe);
+void video_h264_force_idr(void);
+esp_err_t video_h264_set_bitrate(uint32_t bitrate_bps);

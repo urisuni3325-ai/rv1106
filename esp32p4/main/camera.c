@@ -45,6 +45,12 @@ static SemaphoreHandle_t s_snap_done;
 static snap_req_t *volatile s_snap_req;
 
 static camera_status_t s_status;
+/* 콜백이 가져가서 아직 안 돌려준 프레임 수. 스트림을 닫기 전에 0 이 될 때까지 기다린다 */
+static volatile int s_held;
+static uvc_host_stream_hdl_t s_stream;
+
+#define CT_AE_PRIORITY_CONTROL   0x03  /* UVC 1.5 표 A-12 */
+#define CT_AE_PRIORITY_BIT       2     /* Camera Terminal bmControls D2 */
 static uint32_t s_fps_frames;
 static int64_t s_fps_t0;
 
@@ -277,6 +283,34 @@ static esp_err_t take_hires(uvc_host_stream_hdl_t stream, const uvc_host_frame_i
     return err;
 }
 
+void camera_frame_release(const camera_frame_t *frame)
+{
+    if (frame && frame->priv && s_stream) {
+        uvc_host_frame_return(s_stream, (uvc_host_frame_t *)frame->priv);
+        __atomic_sub_fetch(&s_held, 1, __ATOMIC_SEQ_CST);
+    }
+}
+
+/* UVC 카메라는 어두우면 노출 시간을 늘리려고 스스로 프레임레이트를 7.5~15fps 로 떨어뜨린다
+ * (Auto-Exposure Priority). 이걸 끄면 화면이 조금 어두워지는 대신 설정한 fps 를 유지한다. */
+static void set_constant_fps(uvc_host_stream_hdl_t stream)
+{
+#if CONFIG_APP_UVC_CONSTANT_FPS
+    uint8_t term = 0;
+    bool supported = false;
+    if (uvc_host_stream_find_terminal(stream, UVC_HOST_ITT_CAMERA, &term) != ESP_OK ||
+        uvc_host_stream_unit_supports_control(stream, term, CT_AE_PRIORITY_BIT, &supported) != ESP_OK ||
+        !supported) {
+        ESP_LOGW(TAG, "카메라가 노출 우선순위 제어를 지원하지 않음 — 어두우면 fps 가 떨어질 수 있습니다");
+        return;
+    }
+    uint8_t constant_frame_rate = 0;
+    esp_err_t err = uvc_host_stream_unit_ctrl(stream, term, CT_AE_PRIORITY_CONTROL, UVC_HOST_REQ_SET_CUR,
+                                              &constant_frame_rate, 1);
+    ESP_LOGI(TAG, "자동노출이 프레임레이트를 낮추지 않도록 고정: %s", esp_err_to_name(err));
+#endif
+}
+
 static void update_fps(void)
 {
     s_status.frames++;
@@ -344,6 +378,9 @@ static bool run_stream(void)
     }
     uvc_host_stream_format_t cur = { 0 };
     uvc_host_stream_format_get(stream, &cur);
+    s_held = 0;
+    s_stream = stream;
+    set_constant_fps(stream);
     s_status.connected = true;
     s_status.width = cur.h_res;
     s_status.height = cur.v_res;
@@ -384,14 +421,29 @@ static bool run_stream(void)
                 finish_snapshot(claimed, copy_snapshot(f, claimed->out));
                 claimed = NULL;
             }
+            bool kept = false;
             if (is_stream) {
                 update_fps();
                 if (s_frame_cb) {
-                    s_frame_cb(f->data, f->data_len, cur.h_res, cur.v_res,
-                               (uint32_t)(esp_timer_get_time() / 1000));
+                    camera_frame_t cf = {
+                        .data = f->data,
+                        .len = f->data_len,
+                        .width = cur.h_res,
+                        .height = cur.v_res,
+                        .pts_ms = (uint32_t)(esp_timer_get_time() / 1000),
+                        .priv = f,
+                    };
+                    /* 콜백 안에서 넘겨받은 쪽이 바로 release 할 수도 있으니 먼저 센다 */
+                    __atomic_add_fetch(&s_held, 1, __ATOMIC_SEQ_CST);
+                    kept = s_frame_cb(&cf);
+                    if (!kept) {
+                        __atomic_sub_fetch(&s_held, 1, __ATOMIC_SEQ_CST);
+                    }
                 }
             }
-            uvc_host_frame_return(stream, f);
+            if (!kept) {
+                uvc_host_frame_return(stream, f);
+            }
         }
 
         if (claimed && claimed->hires) {
@@ -418,8 +470,16 @@ static bool run_stream(void)
         finish_snapshot(claimed, ESP_ERR_INVALID_STATE);
     }
 out:
-    /* 분리된 뒤에는 프레임 버퍼가 close 에서 한꺼번에 해제되니 돌려주지 않는다 */
+    /* 영상 파이프라인이 잡고 있는 프레임을 다 돌려받은 뒤에 닫는다 (close 가 버퍼를 해제하므로) */
+    for (int i = 0; i < 200 && __atomic_load_n(&s_held, __ATOMIC_SEQ_CST) > 0; i++) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    if (s_held > 0) {
+        ESP_LOGW(TAG, "돌려받지 못한 프레임 %d개", s_held);
+    }
+    /* 분리된 뒤에는 프레임 버퍼가 close 에서 한꺼번에 해제되니 큐에 남은 건 돌려주지 않는다 */
     xQueueReset(s_frame_q);
+    s_stream = NULL;
     uvc_host_stream_close(stream);
     s_status.connected = false;
     s_status.fps = 0;

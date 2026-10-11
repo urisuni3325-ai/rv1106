@@ -38,6 +38,11 @@
   .info div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
   .info b { display: block; font-size: 12px; color: var(--dim); font-weight: 500; }
   .info span { font: 14px ui-monospace, monospace; }
+  .diag { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+          margin-bottom: 16px; font: 13px/1.6 ui-monospace, monospace; overflow-x: auto; }
+  .diag .flow { white-space: nowrap; }
+  .diag .hint { font-family: inherit; color: var(--warn); }
+  .diag .hint.ok { color: var(--ok); }
   h2 { font-size: 15px; margin: 18px 0 8px; font-weight: 600; }
   #shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
   .shot { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -84,6 +89,13 @@
     <div><b>보드 메모리 (PSRAM)</b><span id="iMem">-</span></div>
   </div>
 
+  <!-- 어느 단계에서 프레임이 줄어드는지 한눈에: 카메라 → 디코드 → 인코드 → 전송 → 브라우저 -->
+  <div class="diag">
+    <div class="flow" id="dFlow">진단: -</div>
+    <div class="flow" id="dNet">-</div>
+    <div class="hint" id="dHint"></div>
+  </div>
+
   <h2>스냅샷</h2>
   <div id="shots"><div class="empty">아직 찍은 사진이 없습니다.</div></div>
 </main>
@@ -99,6 +111,8 @@ let wantConnected = false;
 let retryTimer = null;
 let lastStats = null;
 let session = 0;
+let rxInfo = { fps: 0, lost: 0, freezes: 0, lostRate: 0 };
+let lastDiag = null;
 
 function setState(text, level) {
   $("state").textContent = text;
@@ -312,7 +326,38 @@ async function pollStatus() {
     $("iMax").textContent = c.connected ? `${c.max_width}x${c.max_height}` : "-";
     $("iMem").textContent = `${(s.heap_psram / 1048576).toFixed(1)}MB 남음`;
     if (!c.connected && !wantConnected) setState("카메라를 기다리는 중", "warn");
+    showDiag(s);
   } catch (e) { /* 스냅샷 촬영 중에는 응답이 늦을 수 있음 */ }
+}
+
+function showDiag(s) {
+  const c = s.camera, p = s.pipeline;
+  if (!p) return;
+  const f = (x) => Number(x || 0).toFixed(1);
+  const streaming = pc && pc.connectionState === "connected";
+  $("dFlow").textContent =
+    `카메라 ${f(c.fps)} → 디코드 ${f(p.dec_fps)} (${p.dec_ms}ms${p.ppa_path ? ", PPA" : ""})` +
+    ` → 인코드 ${f(p.enc_fps)} (${p.enc_ms}ms) → 전송 ${f(p.sent_fps)} (${p.send_ms}ms)` +
+    ` → 브라우저 ${streaming ? rxInfo.fps.toFixed(0) : "-"} fps`;
+  const busy = lastDiag ? p.drop_busy - lastDiag.drop_busy : 0;
+  const net = lastDiag ? p.drop_net - lastDiag.drop_net : 0;
+  $("dNet").textContent =
+    `비트레이트 목표 ${p.target_kbps} / 실제 ${p.sent_kbps} kbps · 건너뜀(인코더 바쁨 ${p.drop_busy}, 전송 밀림 ${p.drop_net})` +
+    ` · 패킷 손실 ${rxInfo.lost} · 멈춤 ${rxInfo.freezes}회`;
+  lastDiag = p;
+
+  // 가장 먼저 프레임이 줄어드는 단계를 짚어 준다
+  let hint = "", ok = false;
+  const budget = 1000 / Math.max(c.fps, 1);
+  if (!c.connected) hint = "";
+  else if (!streaming) hint = "연결되면 단계별 수치가 나옵니다.";
+  else if (c.fps < 20) hint = "카메라 자체가 느립니다 — 조명이 어두우면 자동노출이 fps 를 낮춥니다. 밝게 하거나 '카메라 프레임레이트 고정' 설정을 확인하세요.";
+  else if (p.dec_ms > budget || p.enc_ms > budget || busy > 2) hint = "보드의 디코드/인코드가 못 따라갑니다 — 해상도를 1280x720 으로 낮추세요.";
+  else if (net > 0 || p.send_ms > budget) hint = "WiFi 전송이 밀립니다 — 공유기와 거리를 줄이거나 최대 비트레이트를 낮추세요.";
+  else if (rxInfo.lostRate > 0.02) hint = "WiFi 에서 패킷이 손실됩니다 — 비트레이트가 자동으로 내려갑니다. 계속되면 공유기 채널/거리를 확인하세요.";
+  else { hint = "정상"; ok = true; }
+  $("dHint").textContent = hint;
+  $("dHint").className = "hint" + (ok ? " ok" : "");
 }
 
 async function pollRtc() {
@@ -333,6 +378,17 @@ async function pollRtc() {
       const h = r.frameHeight || video.videoHeight;
       $("iRx").textContent = w ? `${w}x${h} ${fps}fps` : "-";
       const lost = r.packetsLost || 0;
+      const recvd = r.packetsReceived || 0;
+      const prev = rxInfo;
+      const dLost = lost - (prev.lostTotal || 0), dRecv = recvd - (prev.recvTotal || 0);
+      rxInfo = {
+        fps: r.framesPerSecond || 0,
+        lost,
+        lostTotal: lost,
+        recvTotal: recvd,
+        lostRate: dLost + dRecv > 0 ? dLost / (dLost + dRecv) : 0,
+        freezes: r.freezeCount || 0,
+      };
       $("hud").textContent = `${w}x${h} · ${fps}fps · 손실 ${lost}`;
     });
   } catch (e) {}

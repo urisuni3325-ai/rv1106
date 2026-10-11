@@ -39,14 +39,14 @@ static SemaphoreHandle_t s_peer_lock;
 static char *s_local_sdp;
 static volatile conn_state_t s_state = ST_IDLE;
 static bool s_started;
-static webrtc_keyframe_cb_t s_keyframe_cb;
+static webrtc_callbacks_t s_cbs;
 /* HTTP 태스크에서만 읽고 쓴다 */
 static uint32_t s_session;
 
 static void request_keyframe(void)
 {
-    if (s_keyframe_cb) {
-        s_keyframe_cb();
+    if (s_cbs.on_keyframe_request) {
+        s_cbs.on_keyframe_request();
     }
 }
 
@@ -56,6 +56,9 @@ static int on_state(esp_peer_state_t state, void *ctx)
     case ESP_PEER_STATE_CONNECTED:
         ESP_LOGI(TAG, "시청자 연결됨");
         s_state = ST_CONNECTED;
+        if (s_cbs.on_connected) {
+            s_cbs.on_connected();
+        }
         request_keyframe();
         break;
     case ESP_PEER_STATE_DISCONNECTED:
@@ -90,6 +93,24 @@ static int on_msg(esp_peer_msg_t *msg, void *ctx)
         free(s_local_sdp);
         s_local_sdp = strndup((const char *)msg->data, msg->size);
         xSemaphoreGive(s_offer_sem);
+    }
+    return 0;
+}
+
+/* 브라우저가 보내는 REMB: "이 정도 비트레이트까지 받을 수 있다" */
+static int on_remb(esp_peer_remb_report_t *report, void *ctx)
+{
+    if (s_cbs.on_network_feedback && report->bitrate) {
+        s_cbs.on_network_feedback(report->bitrate, -1.0f);
+    }
+    return 0;
+}
+
+/* TWCC: 보낸 패킷 중 실제로 받은 비율과 수신 비트레이트 */
+static int on_twcc(esp_peer_twcc_report_t *report, void *ctx)
+{
+    if (s_cbs.on_network_feedback && report->sent_packets) {
+        s_cbs.on_network_feedback(report->recv_bitrate, report->lost_ratio);
     }
     return 0;
 }
@@ -200,6 +221,10 @@ esp_err_t webrtc_init(int width, int height, int fps)
     esp_peer_default_cfg_t def = {
         .agent_recv_timeout = 100,
         .keep_role = true,
+        /* 브라우저가 패킷 도착 정보를 돌려주게 해서 비트레이트를 WiFi 상태에 맞춘다 */
+        .twcc_cfg = {
+            .enable = true,
+        },
         .rtp_cfg = {
             /* 1080p 키프레임 한 장이 200~300KB 까지 나오므로 넉넉히 */
             .send_pool_size = 1024 * 1024,
@@ -230,6 +255,8 @@ esp_err_t webrtc_init(int width, int height, int fps)
         .on_state = on_state,
         .on_msg = on_msg,
         .on_video_info = on_video_info,
+        .on_remb = on_remb,
+        .on_twcc = on_twcc,
         .on_audio_info = on_audio_info,
         .on_video_data = on_video_data,
         .on_audio_data = on_audio_data,
@@ -334,7 +361,7 @@ const char *webrtc_state_str(void)
     }
 }
 
-void webrtc_set_keyframe_cb(webrtc_keyframe_cb_t cb)
+void webrtc_set_callbacks(const webrtc_callbacks_t *cbs)
 {
-    s_keyframe_cb = cb;
+    s_cbs = *cbs;
 }

@@ -10,8 +10,22 @@
  * Arducam B0290(IMX298) 은 USB2.0 UVC 카메라라 드라이버 없이 붙는다.
  * ESP32-P4 의 USB OTG 2.0 HS 포트(보드의 USB-A 또는 OTG 단자)에 꽂는다. */
 
-/* 실시간 해상도 프레임이 올 때마다 카메라 태스크에서 불린다. jpeg 는 콜백 안에서만 유효 */
-typedef void (*camera_frame_cb_t)(const uint8_t *jpeg, size_t len, int w, int h, uint32_t pts_ms);
+typedef struct {
+    const uint8_t *data;   /* MJPEG 한 장 */
+    size_t         len;
+    int            width;
+    int            height;
+    uint32_t       pts_ms; /* 받은 시각 */
+    void          *priv;
+} camera_frame_t;
+
+/* 실시간 해상도 프레임이 올 때마다 카메라 태스크에서 불린다.
+ * true 를 돌려주면 프레임 버퍼를 가져간 것이고, 다 쓰면 camera_frame_release() 로 돌려줘야 한다.
+ * (USB 버퍼는 몇 개뿐이라 오래 잡고 있으면 그만큼 카메라 프레임이 버려진다)
+ * false 면 콜백이 끝나자마자 돌려준다. 콜백 안에서 오래 걸리는 일을 하면 안 된다. */
+typedef bool (*camera_frame_cb_t)(const camera_frame_t *frame);
+
+void camera_frame_release(const camera_frame_t *frame);
 
 /* 고해상도 스냅샷 뒤 실시간 해상도로 돌아왔을 때 (인코더에 IDR 요청용) */
 typedef void (*camera_resume_cb_t)(void);

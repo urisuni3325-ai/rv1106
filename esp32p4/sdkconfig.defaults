@@ -39,3 +39,13 @@ CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES=y
 # WiFi: ESP32-P4-Function-EV-Board 의 ESP32-C6 (SDIO, esp_hosted)
 CONFIG_SLAVE_IDF_TARGET_ESP32C6=y
 CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y
+# P4→C6 송신 큐. 기본 20 패킷으로는 키프레임(RTP 80~150개)이 한 번에 안 들어가서
+# 넘친 패킷이 버려지고 영상이 끊긴다. 이름이 esp_hosted 2.x / 3.x 에서 달라서 둘 다 적는다
+# (해당 버전에 없는 이름은 빌드 때 경고만 나고 무시된다)
+CONFIG_ESP_HOSTED_SDIO_TX_Q_SIZE=160
+CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE=40
+CONFIG_ESP_HOSTED_HOST_SDIO_TX_Q_SIZE=160
+CONFIG_ESP_HOSTED_HOST_SDIO_RX_Q_SIZE=40
+# WiFi 송신 버퍼·A-MPDU 묶음 크기 (esp_wifi_init 설정으로 C6 에 전달된다. 기본값은 메모리 절약 쪽)
+CONFIG_WIFI_RMT_STATIC_TX_BUFFER_NUM=32
+CONFIG_WIFI_RMT_TX_BA_WIN=32

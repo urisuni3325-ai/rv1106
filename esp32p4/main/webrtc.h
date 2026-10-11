@@ -33,6 +33,14 @@ bool webrtc_is_streaming(void);
 /* 상태 문자열 ("idle", "offering", "connecting", "connected", "failed") */
 const char *webrtc_state_str(void);
 
-typedef void (*webrtc_keyframe_cb_t)(void);
-/* 연결 직후·PLI 수신 시 불린다. 인코더에 IDR 을 요청하는 데 쓴다 */
-void webrtc_set_keyframe_cb(webrtc_keyframe_cb_t cb);
+typedef struct {
+    /* 시청자가 새로 연결됐을 때 */
+    void (*on_connected)(void);
+    /* 연결 직후·PLI(브라우저의 키프레임 요청) 수신 시. 인코더에 IDR 을 요청하는 데 쓴다 */
+    void (*on_keyframe_request)(void);
+    /* 브라우저가 보낸 혼잡 정보 (REMB 추정 대역폭 / TWCC 수신률·손실률). 모르는 값은 0, 손실은 -1 */
+    void (*on_network_feedback)(uint32_t est_bps, float loss);
+} webrtc_callbacks_t;
+
+/* peer 태스크에서 불린다. 오래 걸리는 일을 하면 안 된다 */
+void webrtc_set_callbacks(const webrtc_callbacks_t *cbs);

@@ -6,7 +6,7 @@
 #include "esp_timer.h"
 #include "cJSON.h"
 #include "camera.h"
-#include "video_enc.h"
+#include "pipeline.h"
 #include "webrtc.h"
 #include "wifi.h"
 #include "http_server.h"
@@ -160,9 +160,9 @@ static esp_err_t snapshot_get(httpd_req_t *req)
 static esp_err_t status_get(httpd_req_t *req)
 {
     camera_status_t cam;
-    video_enc_stats_t enc;
+    pipeline_stats_t p;
     camera_get_status(&cam);
-    video_enc_get_stats(&enc);
+    pipeline_get_stats(&p);
 
     cJSON *root = cJSON_CreateObject();
     cJSON *c = cJSON_AddObjectToObject(root, "camera");
@@ -173,14 +173,22 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(c, "max_width", cam.max_width);
     cJSON_AddNumberToObject(c, "max_height", cam.max_height);
     cJSON_AddNumberToObject(c, "dropped", cam.dropped);
-    cJSON *e = cJSON_AddObjectToObject(root, "encoder");
-    cJSON_AddNumberToObject(e, "width", enc.width);
-    cJSON_AddNumberToObject(e, "height", enc.height);
-    cJSON_AddBoolToObject(e, "ppa_path", enc.ppa_path);
-    cJSON_AddNumberToObject(e, "frames", enc.frames);
-    cJSON_AddNumberToObject(e, "bytes", enc.bytes);
-    cJSON_AddNumberToObject(e, "last_ms", enc.last_ms);
-    cJSON_AddNumberToObject(e, "errors", enc.errors);
+    /* 단계별로 어디서 프레임이 줄어드는지 보이게: 카메라 fps → 디코드 → 인코드 → 전송 */
+    cJSON *e = cJSON_AddObjectToObject(root, "pipeline");
+    cJSON_AddNumberToObject(e, "width", p.width);
+    cJSON_AddNumberToObject(e, "height", p.height);
+    cJSON_AddBoolToObject(e, "ppa_path", p.ppa_path);
+    cJSON_AddNumberToObject(e, "dec_fps", (int)(p.dec_fps * 10) / 10.0);
+    cJSON_AddNumberToObject(e, "enc_fps", (int)(p.enc_fps * 10) / 10.0);
+    cJSON_AddNumberToObject(e, "sent_fps", (int)(p.sent_fps * 10) / 10.0);
+    cJSON_AddNumberToObject(e, "sent_kbps", (int)p.sent_kbps);
+    cJSON_AddNumberToObject(e, "target_kbps", p.target_kbps);
+    cJSON_AddNumberToObject(e, "dec_ms", p.dec_ms);
+    cJSON_AddNumberToObject(e, "enc_ms", p.enc_ms);
+    cJSON_AddNumberToObject(e, "send_ms", p.send_ms);
+    cJSON_AddNumberToObject(e, "drop_busy", p.drop_busy);
+    cJSON_AddNumberToObject(e, "drop_net", p.drop_net);
+    cJSON_AddNumberToObject(e, "errors", p.errors);
     cJSON_AddStringToObject(root, "webrtc", webrtc_state_str());
     cJSON_AddStringToObject(root, "ip", wifi_ip_str());
     cJSON_AddNumberToObject(root, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
