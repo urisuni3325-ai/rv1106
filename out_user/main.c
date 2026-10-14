@@ -70,9 +70,11 @@ void Start_Delay_Check(void);
        대기 / 에러 / 문 열림       : OFF
 
    문(세정커버) 열림 중 배수
-     SOL1 을 닫고 SOL6 / SOL7 / SOL8 을 SOL_STOP_TIME 동안 열어 잔압과
-     잔수를 뺀 뒤 닫는다. 정비 중에 코일을 계속 여자하지 않기 위해 시간을
-     제한한다.
+     SOL6 / SOL7 / SOL8 을 SOL_STOP_TIME 동안 열어 잔압과 잔수를 뺀 뒤
+     닫는다. 한 번 시작하면 문을 다시 닫아도 시간을 끝까지 채운다.
+     문을 여는 순간마다 시간을 처음부터 다시 잰다. 무한정 열어 두지는
+     않는다. 코일이 계속 여자되면 뜨거워진다.
+     SOL1 은 Sol1_Control() 이 맡는다.
 
      두 함수 모두 100ms 주기로 Output_control() 바로 뒤에서 부른다.
      Output_control() 이 같은 틱에 쓴 값을 곧바로 덮어쓰므로 코일이
@@ -254,6 +256,8 @@ uint8_t bPrevDoorState = 0;
 BYTE bDoorValveFg = 0;
 // 문 열림 중 배수(6,7,8) 경과 시간 . 100ms 단위
 WORD wDoorDrainCnt = 0;
+// 문 열림을 잡아내기 위한 이전 상태 . 열리는 순간마다 배수 시간을 다시 잰다
+BYTE bDoorOldSt = 0;
 uint16_t wDoorOpenCnt = 0;
    
 
@@ -4201,12 +4205,12 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL5_OFF;
 						SOL6_OFF;
 						
-						// 이 분기는 조건 없이 매 100ms 돈다. 문 열림 중에 여기서 끄면
+						// 이 분기는 조건 없이 매 100ms 돈다. 문 배수 중에 여기서 끄면
 						//  Door_Valve_Control() 이 바로 뒤에서 다시 켜므로 코일이
 						//  100ms 주기로 수 us 끊긴다. 들리지는 않지만 쓸 데 없는
-						//  전이이므로 문이 열려 있는 동안은 배수 경로를 그대로 둔다.
+						//  전이이므로 배수가 끝날 때까지는 그대로 둔다.
 						//  (이 분기는 m_state 의 단수 비트를 지우지 않아 영구히 돈다)
-						if(!bDoorState)
+						if(!bDoorValveFg)
 						{
 							SOL7_OFF;	
 							SOL8_OFF;
@@ -4817,40 +4821,33 @@ void Door_Check(void)
 **************************************************************************************************/
 void Door_Valve_Control(void)
 {
-	if(bDoorState)					// 문 열림
+	// 문이 열리는 순간마다 배수 시간을 처음부터 다시 잰다
+	if( bDoorState && !bDoorOldSt )
 	{
-		if(!bDoorValveFg)			// 열린 순간 한 번만 초기화
-		{
-			bDoorValveFg  = 1;
-			wDoorDrainCnt = 0;
-		}
-		
-		// SOL_STOP_TIME 동안만 열어 둔다.
-		//  무한정 열어 두면 코일이 계속 여자되어 뜨거워진다.
-		if(wDoorDrainCnt <= SOL_STOP_TIME)
-		{
-			if(++wDoorDrainCnt > SOL_STOP_TIME)
-			{
-				SOL6_OFF;
-				SOL7_OFF;
-				SOL8_OFF;
-			}
-			else
-			{
-				SOL6_ON;			// 전해조 배수
-				SOL7_ON;			// 가스배기
-				SOL8_ON;			// 산성수 배수
-			}
-		}
-	}
-	else if(bDoorValveFg)			// 문이 닫힌 뒤 한 번만 되돌린다
-	{
-		bDoorValveFg  = 0;
+		bDoorValveFg  = 1;
 		wDoorDrainCnt = 0;
-		
-		SOL6_OFF;
-		SOL7_OFF;
-		SOL8_OFF;
+	}
+	bDoorOldSt = bDoorState;
+	
+	// 한 번 시작하면 문을 다시 닫아도 SOL_STOP_TIME 을 끝까지 채운다.
+	//  무한정 열어 두지는 않는다. 코일이 계속 여자되면 뜨거워진다.
+	if(bDoorValveFg)
+	{
+		if(++wDoorDrainCnt > SOL_STOP_TIME)
+		{
+			bDoorValveFg  = 0;
+			wDoorDrainCnt = 0;
+			
+			SOL6_OFF;
+			SOL7_OFF;
+			SOL8_OFF;
+		}
+		else
+		{
+			SOL6_ON;				// 전해조 배수
+			SOL7_ON;				// 가스배기
+			SOL8_ON;				// 산성수 배수
+		}
 	}
 }
 
@@ -4860,43 +4857,35 @@ void Door_Valve_Control(void)
 void Sol1_Control(void)
 {
 	WORD wMode;
+	BYTE bOpen;
 	
-	// 1) 문 열림 또는 출수 정지 에러 : 무조건 닫는다
-	if( bDoorState || (lError & ERR_DISPENSE_STOP) )
+	wMode = (WORD)(s_mode_old & 0x7f0);
+	bOpen = 0;
+	
+	if(m_state & 0x02)					// 출수 중 : 원수 유입
 	{
-		SOL1_OFF;
-		return;
+		bOpen = 1;
 	}
-	
-	// 2) 출수 중 : 원수 유입
-	if(m_state & 0x02)
+	else if(m_state & 0x80)				// 단수
 	{
-		SOL1_ON;
-		return;
-	}
-	
-	// 3) 단수 : 알칼리 / 냉알칼리 / PH 설정만 CLEAN_TIME 까지 더 열어 둔다.
-	//     후세정 통수에 원수가 필요하다. 정수 / 냉수 / 온수는 해당 없다.
-	//     ion_stop_cnt 는 Output_control() 이 이미 올린 값이다 (이 함수가 뒤에 돈다)
-	if(m_state & 0x80)
-	{
-		wMode = (WORD)(s_mode_old & 0x7f0);
-		
+		// 알칼리 / 냉알칼리 / PH 설정만 CLEAN_TIME 까지 더 열어 둔다.
+		//  후세정 통수에 원수가 필요하다. 정수 / 냉수 / 온수는 해당 없다.
+		//  ion_stop_cnt 는 Output_control() 이 이미 올린 값이다
+		//  (이 함수를 그 뒤에서 부른다)
 		if( (wMode == ALKA) || (wMode == COOLALKALI)
 		    || ((s_mode_old & 0x7ff) == PH_SET)
 		    || ((s_mode_old & 0x7ff) == PH_SET2)
 		    || ((s_mode_old & 0x7ff) == PH_SET3) )
 		{
-			if(ion_stop_cnt < CLEAN_TIME)
-			{
-				SOL1_ON;
-				return;
-			}
+			if(ion_stop_cnt < CLEAN_TIME)		bOpen = 1;
 		}
 	}
 	
-	// 4) 대기 , 정수 / 냉수 / 온수 단수 , 후세정 종료 후
-	SOL1_OFF;
+	// 문 열림과 출수 정지 에러는 위의 판정보다 세다
+	if( bDoorState || (lError & ERR_DISPENSE_STOP) )	bOpen = 0;
+	
+	if(bOpen)	SOL1_ON;
+	else		SOL1_OFF;
 }
 
 /*
