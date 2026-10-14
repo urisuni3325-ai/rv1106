@@ -157,8 +157,12 @@
 #define  VCLK_1						HAL_GPIO_SetPin((PORT_Type *)PF,_BIT(9))	//VCLK=1;
 #define  VCLK_0						HAL_GPIO_ClearPin((PORT_Type *)PF,_BIT(9))//VCLK=0;
               
-#define  SOL1_CLOSE					HAL_GPIO_SetPin(PA,_BIT(9))	  	//SOL1_ON
-#define  SOL1_OPEN					HAL_GPIO_ClearPin(PA,_BIT(9))   //SOL1_OFF
+// SOL1 : 보통 솔밸브 (NOS 아님). ON(1) = 열림(원수 유입) , OFF(0) = 닫힘
+//  예전 NOS 시절 이름 SOL1_OPEN / SOL1_CLOSE 는 뜻이 뒤집혀 혼동되므로
+//  SOL2 ~ SOL8 과 같은 ON / OFF 이름으로 바꾼다. 남은 옛 이름을 쓰면
+//  컴파일이 안 되므로 빠뜨린 자리를 바로 찾을 수 있다.
+#define  SOL1_ON					HAL_GPIO_SetPin(PA,_BIT(9))
+#define  SOL1_OFF					HAL_GPIO_ClearPin(PA,_BIT(9))
 
 #define  SOL2_ON					HAL_GPIO_SetPin(PA,_BIT(10))	
 #define  SOL2_OFF					HAL_GPIO_ClearPin(PA,_BIT(10))

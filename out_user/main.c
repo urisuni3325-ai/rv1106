@@ -60,19 +60,28 @@ static unsigned char Buffer[BufferSize];
 void Start_Delay_Check(void);
 
 /****************************************************************************
-   문(세정커버) 열림 중 밸브 처리
-     문이 열려 있는 동안 SOL1 을 닫아 원수를 끊고, SOL7 / SOL8 을 열어
-     잔압과 잔수를 빼 둔다. 정비 중에 라인에 압이 걸려 있지 않게 한다.
+   SOL1 (원수 밸브) 제어
+     SOL1 은 보통 솔밸브다. ON(1) = 열림(원수 유입) , OFF(0) = 닫힘.
+     예전 NOS 와 반대이므로 평소에는 닫혀 있어야 한다.
 
-     Door_Check() 는 10ms 마다 돌지만 이 함수는 100ms 마다, 그리고
-     Output_control() 바로 뒤에서 부른다. Output_control() 이 같은 틱에
-     SOL7_OFF / SOL8_OFF 를 써도 곧바로 덮어쓰므로 코일이 100ms 주기로
-     끊겨 딱딱 소리가 나는 일이 없다.
-     (단수 FLUSHING 분기는 조건 없이 매 틱 SOL7_OFF 를 쓴다)
+       출수 중                     : ON
+       정수 / 냉수 / 온수 단수     : 바로 OFF
+       알칼리 / 냉알칼리 / PH 설정 : 단수 후 CLEAN_TIME 까지 ON , 그 뒤 OFF
+       대기 / 에러 / 문 열림       : OFF
 
-     열림 판정은 Door_Check() 의 2초 디바운스(wDoorCnt>=200)를 그대로
+   문(세정커버) 열림 중 배수
+     SOL1 을 닫고 SOL6 / SOL7 / SOL8 을 SOL_STOP_TIME 동안 열어 잔압과
+     잔수를 뺀 뒤 닫는다. 정비 중에 코일을 계속 여자하지 않기 위해 시간을
+     제한한다.
+
+     두 함수 모두 100ms 주기로 Output_control() 바로 뒤에서 부른다.
+     Output_control() 이 같은 틱에 쓴 값을 곧바로 덮어쓰므로 코일이
+     100ms 주기로 끊겨 딱딱 소리가 나는 일이 없다.
+
+     문 열림 판정은 Door_Check() 의 2초 디바운스(wDoorCnt>=200)를 그대로
      따른다. 문을 열고 2초 뒤부터 적용된다.
 ****************************************************************************/
+void Sol1_Control(void);
 void Door_Valve_Control(void);
 
 /****************************************************************************
@@ -243,6 +252,8 @@ uint8_t bDoorState = 0;
 uint8_t bPrevDoorState = 0;
 // 문 열림 중 밸브를 조작했는가 . 문이 닫히는 순간 한 번만 되돌리기 위한 표시
 BYTE bDoorValveFg = 0;
+// 문 열림 중 배수(6,7,8) 경과 시간 . 100ms 단위
+WORD wDoorDrainCnt = 0;
 uint16_t wDoorOpenCnt = 0;
    
 
@@ -1931,6 +1942,7 @@ void mainloop(void)
 			//Cool_Control();// cool
 			Start_Delay_Check();    // 출수 시작 지연 (1초 뒤에 Key_action)
 			Output_control(); 
+			Sol1_Control();         // SOL1 은 여기서만 만진다
 			Door_Valve_Control();   // 문 열림 중에는 Output_control 의 밸브 출력을 덮어쓴다
 
 			if(eep_data_fg) {
@@ -3456,7 +3468,7 @@ void fcError(void)
 		}
 	}else if(( lError & ERR_NOS_CLOSE))
 	{
-		SOL1_CLOSE; //NOS 닫기 , 원수 유입 정지 
+		SOL1_OFF;   // 원수 차단 (Sol1_Control() 도 같은 판정을 한다)
 		
 
 		bStopDelayCnt = 0;
@@ -3487,8 +3499,9 @@ void fcError(void)
 	}
 	else
 	{
-		SOL1_OPEN;  //NOS 열기 , 원수 유입 
-		
+		// SOL1 은 여기서 열지 않는다.
+		//  이제 평소에는 닫혀 있어야 하고, 출수 중에만 연다.
+		//  판정은 Sol1_Control() 한 곳에서만 한다.
 		bStopDelayCnt = 0;
 	}
 	
@@ -3934,6 +3947,7 @@ void  Output_control(void)	//1sec -> 0.1
 						
 						SOL3_OFF;
 						SOL6_ON;
+						SOL7_ON;
 						SOL8_ON;
 					}
 					else if(ion_stop_cnt==20) //20=2초후
@@ -3948,14 +3962,12 @@ void  Output_control(void)	//1sec -> 0.1
 						
 						SOL3_ON;
 						SOL6_ON;
+						SOL7_ON;
 						SOL8_ON;
 					}
-					else if(ion_stop_cnt==3)            // Pressure Purge 종료
-					{
-						SOL6_OFF;
-						SOL7_OFF;
-						SOL8_OFF;
-					}
+					// 잔압빼기 종료(ion_stop_cnt==3) 분기를 없앴다.
+					//  SOL6 / SOL7 / SOL8 은 ion_stop_cnt==1 에서 열고
+					//  SOL_STOP_TIME 까지 그대로 열어 둔다.
 					else if(ion_stop_cnt==1)		
 					{
 						ionize_fg=0;
@@ -4005,6 +4017,7 @@ void  Output_control(void)	//1sec -> 0.1
 						RELAY_OFF;           		// 산성수 출수
 						SOL2_OFF;
 						SOL6_ON;
+						SOL7_ON;
 						SOL8_ON;
 					}
 					
@@ -4019,14 +4032,12 @@ void  Output_control(void)	//1sec -> 0.1
 						RELAY_ON;           		// 산성수 출수
 						SOL2_ON;
 						SOL6_ON;
+						SOL7_ON;
 						SOL8_ON;
 					}
-					else if(ion_stop_cnt==3)            // ★ 추가 : Pressure Purge 종료
-					{
-						SOL6_OFF;
-						SOL7_OFF;
-						SOL8_OFF;
-					}
+					// 잔압빼기 종료(ion_stop_cnt==3) 분기를 없앴다.
+					//  SOL6 / SOL7 / SOL8 은 ion_stop_cnt==1 에서 열고
+					//  SOL_STOP_TIME 까지 그대로 열어 둔다.
 					else if(ion_stop_cnt==1)		
 					{
 						ionize_fg=0;
@@ -4808,23 +4819,84 @@ void Door_Valve_Control(void)
 {
 	if(bDoorState)					// 문 열림
 	{
-		bDoorValveFg = 1;
+		if(!bDoorValveFg)			// 열린 순간 한 번만 초기화
+		{
+			bDoorValveFg  = 1;
+			wDoorDrainCnt = 0;
+		}
 		
-		SOL1_CLOSE;					// NOS 닫기 . 원수 차단
-		SOL7_ON;					// 가스배기 열기
-		SOL8_ON;					// 배수 열기
+		// SOL_STOP_TIME 동안만 열어 둔다.
+		//  무한정 열어 두면 코일이 계속 여자되어 뜨거워진다.
+		if(wDoorDrainCnt <= SOL_STOP_TIME)
+		{
+			if(++wDoorDrainCnt > SOL_STOP_TIME)
+			{
+				SOL6_OFF;
+				SOL7_OFF;
+				SOL8_OFF;
+			}
+			else
+			{
+				SOL6_ON;			// 전해조 배수
+				SOL7_ON;			// 가스배기
+				SOL8_ON;			// 산성수 배수
+			}
+		}
 	}
 	else if(bDoorValveFg)			// 문이 닫힌 뒤 한 번만 되돌린다
 	{
-		bDoorValveFg = 0;
+		bDoorValveFg  = 0;
+		wDoorDrainCnt = 0;
 		
+		SOL6_OFF;
 		SOL7_OFF;
 		SOL8_OFF;
-		
-		// SOL1 은 여기서 열지 않는다.
-		//  ERR_COVER_OPEN 이 지워지면 fcError() 의 마지막 else 가 SOL1_OPEN 을
-		//  한다. 누수나 온도에러가 아직 남아 있으면 그쪽에서 계속 닫아 둔다.
 	}
+}
+
+/**************************************************************************************************
+		SOL1 (원수 밸브) 제어
+**************************************************************************************************/
+void Sol1_Control(void)
+{
+	WORD wMode;
+	
+	// 1) 문 열림 또는 출수 정지 에러 : 무조건 닫는다
+	if( bDoorState || (lError & ERR_DISPENSE_STOP) )
+	{
+		SOL1_OFF;
+		return;
+	}
+	
+	// 2) 출수 중 : 원수 유입
+	if(m_state & 0x02)
+	{
+		SOL1_ON;
+		return;
+	}
+	
+	// 3) 단수 : 알칼리 / 냉알칼리 / PH 설정만 CLEAN_TIME 까지 더 열어 둔다.
+	//     후세정 통수에 원수가 필요하다. 정수 / 냉수 / 온수는 해당 없다.
+	//     ion_stop_cnt 는 Output_control() 이 이미 올린 값이다 (이 함수가 뒤에 돈다)
+	if(m_state & 0x80)
+	{
+		wMode = (WORD)(s_mode_old & 0x7f0);
+		
+		if( (wMode == ALKA) || (wMode == COOLALKALI)
+		    || ((s_mode_old & 0x7ff) == PH_SET)
+		    || ((s_mode_old & 0x7ff) == PH_SET2)
+		    || ((s_mode_old & 0x7ff) == PH_SET3) )
+		{
+			if(ion_stop_cnt < CLEAN_TIME)
+			{
+				SOL1_ON;
+				return;
+			}
+		}
+	}
+	
+	// 4) 대기 , 정수 / 냉수 / 온수 단수 , 후세정 종료 후
+	SOL1_OFF;
 }
 
 /*
