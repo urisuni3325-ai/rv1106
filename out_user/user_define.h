@@ -51,6 +51,13 @@
    0 : 입수 유량센서(PE5) - 온수 센서가 고장일 때 임시로 진행시킬 때만 */
 #define FLUSH_PUMP_BY_HOT   0
 
+// 플러싱 온수(펌프) 구간 사용 여부
+//  1 : 전 단계 진행 (원래 동작)
+//  0 : 2단계(온수라인 물채우기 300ml) 와 4단계(온수관로 250ml 배수 +
+//      히터 60도 테스트) 를 건너뛴다. 0 -> 1 -> 3 -> 5 로 진행한다.
+//      온수 모듈을 점검하는 동안 쓴다. 되살릴 때 1 로 바꾸면 된다.
+#define FLUSH_HOT_STEP      0
+
 #if FILTER_PORT_SWAP
 #define F1_ReadID           GD25D10_2_ReadID
 #define F1_ReadUID          GD25D10_2_Read16Bytes_UID

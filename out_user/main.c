@@ -1076,14 +1076,16 @@ void TIMER2n_Init(void)
 }
 void PwmHotPump_off(void)
 {
-
-	TIMER20_Config.AData = 0;
+	// 듀티 0 을 페리페럴에 실제로 써 넣은 뒤 멈춘다.
+	//  구조체만 바꾸고 Stop 만 하면 레지스터에는 이전 듀티가 남아 있고,
+	//  출력핀이 멈춘 순간의 레벨로 걸릴 수 있다. 그러면 펌프가 계속 돈다.
+	//  전해조 Pwm_off() 와 같은 순서(값 쓰기 -> 정지)로 맞춘다.
+	//  AData(주기)는 PwmHotPump_out() 과 같은 2000 을 유지한다. 0 으로 두면
+	//  주기가 0 이 되어 동작을 예측할 수 없다.
+	TIMER20_Config.AData = 2000;
 	TIMER20_Config.BData = 0;
-	//HAL_TIMER2n_SetAData(TIMER20, TIMER20_Config.AData);
-	//HAL_TIMER2n_SetBData(TIMER20, TIMER20_Config.BData);
-	HAL_TIMER2n_Stop(TIMER20);
-//	HAL_TIMER2n_Init(pConfig_HotPump->pTIMER2x,  &TIMER20_Config);
-//	HAL_TIMER2n_Stop(pConfig_HotPump->pTIMER2x);	
+	HAL_TIMER2n_Init(pConfig_HotPump->pTIMER2x, &TIMER20_Config);
+	HAL_TIMER2n_Stop(pConfig_HotPump->pTIMER2x);
 }
 void PwmHotPump_out(WORD pwm_data)
 {
@@ -2635,8 +2637,11 @@ void Flow_Hot_Pid(void)
 		bWaitFg=0;
 		
 		// 플러싱의 펌프 구간은 Output_control() 이 고정 PWM 을 준다.
-		// 여기서 끄면 100ms 마다 켜고 끄기를 반복해 펌프가 제대로 돌지 않는다.
-		if( !( ((s_mode&0x7ff) == FLUSHING)
+		//  여기서 끄면 100ms 마다 켜고 끄기를 반복해 펌프가 제대로 돌지 않는다.
+		//  단, 출수 중일 때만 건너뛴다. m_state 를 보지 않으면 플러싱이 펌프
+		//  구간에서 멈췄을 때(문 열림 , 에러 , 출수 키) 펌프를 끄는 곳이
+		//  아무데도 없어 전원을 끌 때까지 계속 돈다.
+		if( !( (m_state & 0x02) && ((s_mode&0x7ff) == FLUSHING)
 		       && ((bFlushingStep == 2) || (bFlushingStep == 4) || (bFlushingStep == 5)) ) )
 		{
 			PwmHotPump_off();
@@ -3202,9 +3207,14 @@ void Output_mL_Control(void)
 					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
+#if FLUSH_HOT_STEP
 					bFlushingStep=2;
+#else
+					bFlushingStep=3;      // 2단계(온수라인 물채우기) 건너뜀
+#endif
 				}
 			}
+#if FLUSH_HOT_STEP
 			else if(bFlushingStep==2){            // 온수 라인 물채우기 (펌프)
 				flow = FLUSH_ML_HOT;              // 300ml
 				#if FLUSH_PUMP_BY_HOT
@@ -3222,6 +3232,7 @@ void Output_mL_Control(void)
 					bFlushingStep=3;
 				}
 			}
+#endif
 			else if(bFlushingStep==3){            // 정수 라인 물채우기
 				flow = FLUSH_ML_PURE;             // 200ml
 				lFlowSum = lFlowSum_In;           // 입수량
@@ -3232,9 +3243,14 @@ void Output_mL_Control(void)
 					lFlowSum_Hot = 0;
 					
 					wFlushingCnt=0;
+#if FLUSH_HOT_STEP
 					bFlushingStep=4;
+#else
+					bFlushingStep=5;      // 4단계(온수관로 250ml 배수) 건너뜀
+#endif
 				}
 			}
+#if FLUSH_HOT_STEP
 			else if(bFlushingStep==4){            // 온수관로 배수 + 히터 60도 테스트 (펌프)
 				flow = FLUSH_ML_HOT_TEST;         // 250ml
 				#if FLUSH_PUMP_BY_HOT
@@ -3252,6 +3268,7 @@ void Output_mL_Control(void)
 					bFlushingStep=5;
 				}
 			}
+#endif
 			else if(bFlushingStep==5){            // 온수관로 잔열 배수 (히터 OFF, 펌프)
 				flow = FLUSH_ML_HOT_COOL;         // 300ml
 				#if FLUSH_PUMP_BY_HOT
@@ -4205,11 +4222,9 @@ void  Output_control(void)	//1sec -> 0.1
 						SOL5_OFF;
 						SOL6_OFF;
 						
-						// 이 분기는 조건 없이 매 100ms 돈다. 문 배수 중에 여기서 끄면
-						//  Door_Valve_Control() 이 바로 뒤에서 다시 켜므로 코일이
-						//  100ms 주기로 수 us 끊긴다. 들리지는 않지만 쓸 데 없는
-						//  전이이므로 배수가 끝날 때까지는 그대로 둔다.
-						//  (이 분기는 m_state 의 단수 비트를 지우지 않아 영구히 돈다)
+						// 문 배수 중이면 SOL7 / SOL8 은 건드리지 않는다.
+						//  Door_Valve_Control() 이 SOL_STOP_TIME 까지 열어 두는
+						//  중이라 여기서 끄면 바로 뒤에서 다시 켜게 된다.
 						if(!bDoorValveFg)
 						{
 							SOL7_OFF;	
@@ -4218,6 +4233,11 @@ void  Output_control(void)	//1sec -> 0.1
 				
 						ionize_fg=0;
 						flow_in_fg=0;  		
+						
+						PwmHotPump_off();      // 펌프 구간에서 멈췄을 수 있다
+						bFlushingStep = 0;     // 남겨 두면 Flow_Hot_Pid 가 펌프를 못 끈다
+						
+						m_state &= 0x7d;       // 대기 상태로 복귀
 						
 				break;
 				default :
@@ -4456,6 +4476,7 @@ void  Output_control(void)	//1sec -> 0.1
 							SOL6_ON;
 							SOL8_ON;
 					}
+#if FLUSH_HOT_STEP
 					else if(bFlushingStep==2){ ///온수라인 물채우기
 						
 						//SOL1_OFF;
@@ -4470,6 +4491,7 @@ void  Output_control(void)	//1sec -> 0.1
 						
 						PwmHotPump_out(FLUSH_PUMP_PWM);
 					}
+#endif
 					else if(bFlushingStep==3){ //정수라인 물채우기
 						
 							PwmHotPump_off();
@@ -4484,6 +4506,7 @@ void  Output_control(void)	//1sec -> 0.1
 							SOL8_ON;
 
 				}
+#if FLUSH_HOT_STEP
 				else if(bFlushingStep==4){ //온수관로 배수 + 히터 60도 테스트
 						
 						SOL2_OFF;
@@ -4499,6 +4522,7 @@ void  Output_control(void)	//1sec -> 0.1
 						
 						bFlushHeaterFg = 1;      //  히터 테스트 구간
 					}
+#endif
 					else if(bFlushingStep==5){ //온수관로 잔열 배수 (히터 OFF)
 						
 						SOL2_OFF;
